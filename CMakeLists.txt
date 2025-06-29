@@ -102,4 +102,10 @@ if(HNSWLIB_EXAMPLES)
 
     add_executable(main tests/cpp/main.cpp tests/cpp/sift_1b.cpp)
     target_link_libraries(main hnswlib)
+
+    add_executable(flex_gen_graph examples/cpp/flex_gen_graph.cpp)
+    target_link_libraries(flex_gen_graph hnswlib)
+
+    add_executable(flex_gen_2d examples/cpp/flex_gen_2d.cpp)
+    target_link_libraries(flex_gen_2d hnswlib)
 endif()

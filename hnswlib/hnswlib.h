@@ -226,3 +226,5 @@ AlgorithmInterface<dist_t>::searchKnnCloserFirst(const void* query_data, size_t 
 #include "stop_condition.h"
 #include "bruteforce.h"
 #include "hnswalg.h"
+#include "graph_gen.h"
+#include "pt2d_gen.h"

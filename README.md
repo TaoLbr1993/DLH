@@ -1,36 +1,15 @@
 # Hnswlib - fast approximate nearest neighbor search
 Header-only C++ HNSW implementation with python bindings, insertions and updates.
 
-**NEWS:**
-
-**version 0.8.0** 
-
-* Multi-vector document search and epsilon search (for now, only in C++)
-* By default, there is no statistic aggregation, which speeds up the multi-threaded search (it does not seem like people are using it anyway: [Issue #495](https://github.com/nmslib/hnswlib/issues/495)). 
-* Various bugfixes and improvements
-* `get_items` now have `return_type` parameter, which can be either 'numpy' or 'list'
-
-Full list of changes: https://github.com/nmslib/hnswlib/pull/523
-
-**version 0.7.0** 
-
-* Added support to filtering (#402, #430) by [@kishorenc](https://github.com/kishorenc)
-* Added python interface for filtering (though note its performance is limited by GIL) (#417) by [@gtsoukas](https://github.com/gtsoukas)
-* Added support for replacing the elements that were marked as delete with newly inserted elements (to control the size of the index, #418) by [@dyashuni](https://github.com/dyashuni)
-* Fixed data races/deadlocks in updates/insertion, added stress test for multithreaded operation (#418) by [@dyashuni](https://github.com/dyashuni)
-* Documentation, tests, exception handling, refactoring (#375, #379, #380, #395, #396, #401, #406, #404, #409, #410, #416, #415, #431, #432, #433) by [@jlmelville](https://github.com/jlmelville), [@dyashuni](https://github.com/dyashuni), [@kishorenc](https://github.com/kishorenc), [@korzhenevski](https://github.com/korzhenevski), [@yoshoku](https://github.com/yoshoku), [@jianshu93](https://github.com/jianshu93), [@PLNech](https://github.com/PLNech)
-* global linkages (#383) by [@MasterAler](https://github.com/MasterAler), USE_SSE usage in MSVC (#408) by [@alxvth](https://github.com/alxvth)
-
-
-### Highlights:
-1) Lightweight, header-only, no dependencies other than C++ 11
-2) Interfaces for C++, Python, external support for Java and R (https://github.com/jlmelville/rcpphnsw).
-3) Has full support for incremental index construction and updating the elements (thanks to the contribution by Apoorv Sharma). Has support for element deletions 
-(by marking them in index, later can be replaced with other elements). Python index is picklable.
-4) Can work with custom user defined distances (C++).
-5) Significantly less memory footprint and faster build time compared to current nmslib's implementation.
-
-Description of the algorithm parameters can be found in [ALGO_PARAMS.md](ALGO_PARAMS.md).
+### C++ compile
+安装cmake和make，运行如下命令
+```
+mkdir build
+cmake ..
+make
+```
+然后可以在build/下找到exampels/cpp下实例代码编译的命令
+注*: 不要直接在根目录cmake，会修改makefile文件
 
 
 ### Python bindings
