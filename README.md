@@ -5,6 +5,7 @@ Header-only C++ HNSW implementation with python bindings, insertions and updates
 安装cmake和make，运行如下命令
 ```
 mkdir build
+cd build
 cmake ..
 make
 ```
