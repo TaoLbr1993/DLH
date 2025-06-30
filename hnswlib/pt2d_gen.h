@@ -8,8 +8,8 @@ namespace hnswlib {
     class Point2DSampler {
     public:
         float lrange, rrange, urange, drange;
-        
-        size_t * coords{nullptr};
+        std::unordered_map<labeltype, size_t> xcoords;
+        std::unordered_map<labeltype, size_t> ycoords;
         // id1 x-coor, id1 y-coor, id2 x-coor, id2 y-coor ...
 
         Point2DSampler(float lrange, float rrange, float drange, float urange):lrange(lrange),rrange(rrange),urange(urange),drange(drange){}

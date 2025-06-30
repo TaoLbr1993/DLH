@@ -8,7 +8,8 @@ namespace hnswlib {
     class GraphRelationSampler {
     public:
         float prob;
-        std::unordered_map<labeltype, size_t> id_offset_map;
+        std::unordered_map<labeltype, size_t> id_start_point_map;
+        std::unordered_map<labeltype, unsigned int> offset_map;
         size_t * end_points{nullptr};
         // endpoints of id1 + endpoints of id2 + ...
 
