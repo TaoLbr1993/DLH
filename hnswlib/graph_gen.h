@@ -1,6 +1,8 @@
 #pragma once
 #include "hnswlib.h"
 #include <unordered_set>
+#include <random>
+#include <vector>
 
 namespace hnswlib {
 
@@ -15,12 +17,66 @@ namespace hnswlib {
 
         GraphRelationSampler(float prob):prob(prob){}
 
-        void genRelation(size_t* ids){
+        void clear() {
+            // 清空原有数据
+            id_start_point_map.clear();
+            offset_map.clear();
+            if (end_points) {
+                delete[] end_points;
+                end_points = nullptr;
+            }
+        }
+
+        void genRelation(size_t* ids, size_t num_ids) {
             // todo:
             // generate graph information upon ids
             // distribution:
             // https://www.cnblogs.com/orion-orion/p/16254923.html 
             // Gnp
+            
+            // 清空原有数据
+            clear();
+
+            // 邻接表暂存一下
+            std::vector<std::vector<size_t>> edges(num_ids);
+
+            // 生成随机种子并使用种子初始化随机数生成器
+            std::random_device rd;
+            std::default_random_engine rng(rd());
+            // 使用均匀分布生成随机数
+            std::uniform_real_distribution<float> distrib(0.0f, 1.0f);
+
+            // 遍历每对节点（无向图，不重复）
+            for (size_t i = 0; i < num_ids; i++) {
+                for (size_t j = i + 1; j < num_ids; j++) {
+                    float s = distrib(rng);
+                    if (s < prob) {
+                        // 添加无向边
+                        edges[i].push_back(ids[j]);
+                        edges[j].push_back(ids[i]);
+                    }
+                }
+            }
+
+            // 统计总边数
+            size_t totalEdges = 0;
+            for (size_t i = 0; i < num_ids; ++i) {
+                totalEdges += edges[i].size();
+            }
+
+            // 分配 end_points
+            end_points = new size_t[totalEdges];
+
+            // 填充 CSR 结构
+            size_t pos = 0;
+            for (size_t i = 0; i < num_ids; i++) {
+                labeltype id = ids[i];
+                id_start_point_map[id] = pos;
+                offset_map[id] = static_cast<unsigned int>(edges[i].size());
+                for (size_t v : edges[i]) {
+                    end_points[pos++] = v;
+                }
+            }
         }
     
         void saveRelation(const std::string & location) {
@@ -28,15 +84,91 @@ namespace hnswlib {
             // save sampled graph information
             // refer to:
             // hnswalg.h/HerarchicalNSW->saveIndex
+            std::ofstream output(location, std::ios::binary);
+            if (!output.is_open()) {
+                throw std::runtime_error("Cannot open file for saving relation: " + location);
+            }
 
+            // 保存 prob
+            writeBinaryPOD(output, prob);
+
+            // 保存 id_start_point_map 大小和内容
+            size_t idStartPointMapSize = id_start_point_map.size();
+            writeBinaryPOD(output, idStartPointMapSize);
+
+            for (const auto& kv : id_start_point_map) {
+                writeBinaryPOD(output, kv.first);
+                writeBinaryPOD(output, kv.second);
+            }
+
+            // 保存 offset_map 大小和内容
+            size_t offsetMapSize = offset_map.size();
+            writeBinaryPOD(output, offsetMapSize);
+            for (const auto& kv : offset_map) {
+                writeBinaryPOD(output, kv.first);
+                writeBinaryPOD(output, kv.second);
+            }
+
+            // 保存 end_points 长度和内容
+            size_t totalEdges = 0;
+            for (const auto& kv : offset_map) {
+                totalEdges += kv.second;
+            }
+            writeBinaryPOD(output, totalEdges);
+            output.write((char*)end_points, sizeof(size_t) * totalEdges);
+
+            output.close();
         }
 
         void loadRelation(const std::string & location) {
             // todo:
             // load sampled graph information
             // refer to:
-            // hnswalg.h/HerarchicalNSW->loadIndex
-        }
+            // hnswalg.h/HerarchicalNSW->loadIndex 
+            std::ifstream input(location, std::ios::binary);
+            if (!input.is_open()) {
+                throw std::runtime_error("Cannot open file for loading relation: " + location);
+            }
 
+            // 清空原有数据
+            clear();
+
+            // 读取 prob
+            readBinaryPOD(input, prob);
+
+            // 读取 id_start_point_map
+            size_t idStartPointMapSize = 0;
+            readBinaryPOD(input, idStartPointMapSize);
+            for (size_t i = 0; i < idStartPointMapSize; i++) {
+                labeltype key;
+                size_t value;
+                readBinaryPOD(input, key);
+                readBinaryPOD(input, value);
+                id_start_point_map[key] = value;
+            }
+
+            // 读取 offset_map
+            size_t offsetMapSize = 0;
+            readBinaryPOD(input, offsetMapSize);
+            for (size_t i = 0; i < offsetMapSize; i++) {
+                labeltype key;
+                unsigned int value;
+                readBinaryPOD(input, key);
+                readBinaryPOD(input, value);
+                offset_map[key] = value;
+            }
+
+            // 读取 end_points
+            size_t totalEdges = 0;
+            readBinaryPOD(input, totalEdges);
+            if (totalEdges > 0) {
+                end_points = new size_t[totalEdges];
+                input.read(reinterpret_cast<char*>(end_points), sizeof(size_t) * totalEdges);
+            } else {
+                end_points = nullptr;
+            }
+
+            input.close();
+        }
     };
 }
