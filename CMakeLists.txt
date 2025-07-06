@@ -108,4 +108,11 @@ if(HNSWLIB_EXAMPLES)
 
     add_executable(flex_gen_2d examples/cpp/flex_gen_2d.cpp)
     target_link_libraries(flex_gen_2d hnswlib)
+
+    # hnsw-flex
+    add_executable(ghnsw_example_filter examples/cpp/ghnsw_example_filter.cpp)
+    target_link_libraries(ghnsw_example_filter hnswlib)
+
+    add_executable(phnsw_example_filter examples/cpp/phnsw_example_filter.cpp)
+    target_link_libraries(phnsw_example_filter hnswlib)
 endif()

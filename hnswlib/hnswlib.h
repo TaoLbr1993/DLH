@@ -228,3 +228,5 @@ AlgorithmInterface<dist_t>::searchKnnCloserFirst(const void* query_data, size_t 
 #include "hnswalg.h"
 #include "graph_gen.h"
 #include "pt2d_gen.h"
+#include "hnsw_graph.h"
+#include "hnsw_2dpt.h"
