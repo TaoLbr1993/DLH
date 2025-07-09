@@ -3,7 +3,7 @@
 #include <unordered_set>
 #include <random>
 #include <vector>
-#include <set>
+#include <unordered_set>
 
 namespace hnswlib {
 
@@ -173,15 +173,15 @@ namespace hnswlib {
         }
 
         // 根据给定的 id 和 k 值，获取 k-hop 节点集合（最多经过 k 条边到达的节点，不包括自身）
-        std::set<labeltype> getKHopNodes(labeltype id, int k) {
-            std::set<labeltype> result;
-            std::set<labeltype> visited;
-            std::set<labeltype> current_level;
+        std::unordered_set<labeltype> getKHopNodes(labeltype id, int k) {
+            std::unordered_set<labeltype> result;
+            std::unordered_set<labeltype> visited;
+            std::unordered_set<labeltype> current_level;
             current_level.insert(id);
             visited.insert(id);
 
             for (int hop = 0; hop < k; hop++) {
-                std::set<labeltype> next_level;
+                std::unordered_set<labeltype> next_level;
                 for (const auto& node : current_level) {
                     auto it_start = id_start_point_map.find(node);
                     auto it_offset = offset_map.find(node);

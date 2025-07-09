@@ -38,7 +38,7 @@ void print_gsampler_info(const hnswlib::GraphRelationSampler* gsampler, size_t p
 
 void test_getKHopNodes(hnswlib::GraphRelationSampler* gsampler, hnswlib::labeltype id, int k) {
     std::cout << "测试 getKHopNodes, id = " << id << ", k = " << k << std::endl;
-    std::set<hnswlib::labeltype> kHopNodes = gsampler->getKHopNodes(id, k);
+    std::unordered_set<hnswlib::labeltype> kHopNodes = gsampler->getKHopNodes(id, k);
     std::cout << "  k-hop 节点数量: " << kHopNodes.size() << std::endl;
     std::cout << "  节点列表(前20个): ";
     int cnt = 0;
