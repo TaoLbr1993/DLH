@@ -2,7 +2,7 @@
 
 修改分布在两个文件：`hnsw_grap.h` 和 `ghnsw_example_filter.cpp`
 
-### `hnsw_grap.h`
+### `hnsw_graph.h`
 
 - `addPointLimit()`，两个重载函数用于构建索引
 - `searchBaseLayerLimit()`，返回给定点的ANNS，目前仅用于构建阶段
