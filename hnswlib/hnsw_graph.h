@@ -171,14 +171,14 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
         graph_rel = grs;
         graph_hopk = k;
 
-        size_t * ids = new size_t[max_elements_];
-        for (size_t i = 0; i < max_elements_; i++) {
-            ids[i] = i;
-        }
+        // size_t * ids = new size_t[max_elements_];
+        // for (size_t i = 0; i < max_elements_; i++) {
+        //     ids[i] = i;
+        // }
         
-        graph_rel->genRelation(ids, max_elements_);
+        // graph_rel->genRelation(ids, max_elements_);
 
-        delete[] ids;
+        // delete[] ids;
     }
 
     struct CompareByFirst {
@@ -323,6 +323,157 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
         return top_candidates;
     }
 
+
+    std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
+    searchBaseLayerLimit(
+        const void *data_point, 
+        labeltype query_label,
+        std::unordered_set<labeltype>& khop_nbr) {
+        
+        // 获取一个合适的起始点
+        tableint ep_id = getEntryPointForKHop(data_point, query_label, khop_nbr);
+
+        VisitedList *vl = visited_list_pool_->getFreeVisitedList();
+        vl_type *visited_array = vl->mass;
+        vl_type visited_array_tag = vl->curV;
+    
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidateSet;
+    
+        dist_t lowerBound;
+        if (!isMarkedDeleted(ep_id) && khop_nbr.count(getExternalLabel(ep_id)) > 0) {
+            dist_t dist = fstdistfunc_(data_point, getDataByInternalId(ep_id), dist_func_param_);
+            top_candidates.emplace(dist, ep_id);
+            lowerBound = dist;
+            candidateSet.emplace(-dist, ep_id);
+        } else {
+            lowerBound = std::numeric_limits<dist_t>::max();
+            candidateSet.emplace(-lowerBound, ep_id);
+        }
+        visited_array[ep_id] = visited_array_tag;
+    
+        while (!candidateSet.empty()) {
+            std::pair<dist_t, tableint> curr_el_pair = candidateSet.top();
+            if ((-curr_el_pair.first) > lowerBound && top_candidates.size() == ef_construction_) {
+                break;
+            }
+            candidateSet.pop();
+    
+            tableint curNodeNum = curr_el_pair.second;
+    
+            std::unique_lock<std::mutex> lock(link_list_locks_[curNodeNum]);
+    
+            int *data = (int*)get_linklist0(curNodeNum); // 只在第 0 层搜索
+            size_t size = getListCount((linklistsizeint*)data);
+            tableint *datal = (tableint *) (data + 1);
+    
+            for (size_t j = 0; j < size; j++) {
+                tableint candidate_id = *(datal + j);
+                
+                // 检查候选点是否在k-hop邻居内
+                labeltype candidate_label = getExternalLabel(candidate_id);
+
+                // 不能直接跳过，加入到 candidateSet 中，但不在 top_candidates 中
+                // if (khop_nbr.count(candidate_label) == 0) continue;
+                
+                if (visited_array[candidate_id] == visited_array_tag) continue;
+                visited_array[candidate_id] = visited_array_tag;
+                
+                char *currObj1 = (getDataByInternalId(candidate_id));
+                dist_t dist1 = fstdistfunc_(data_point, currObj1, dist_func_param_);
+                
+                if (top_candidates.size() < ef_construction_ || lowerBound > dist1) {
+                    candidateSet.emplace(-dist1, candidate_id);
+                    
+                    if (!isMarkedDeleted(candidate_id) && khop_nbr.count(candidate_label) > 0)
+                        top_candidates.emplace(dist1, candidate_id);
+                    
+                    if (top_candidates.size() > ef_construction_)
+                        top_candidates.pop();
+                    
+                    if (!top_candidates.empty())
+                        lowerBound = top_candidates.top().first;
+                }
+            }
+        }
+        visited_list_pool_->releaseVisitedList(vl);
+    
+        return top_candidates;
+    }
+    
+    // 选择合适的入口点
+    tableint getEntryPointForKHop(const void *data_point, labeltype query_label, std::unordered_set<labeltype>& khop_nbr) {
+        tableint best_entry_point = 0;
+        dist_t min_distance = std::numeric_limits<dist_t>::max();
+        
+        std::unique_lock<std::mutex> lock(label_lookup_lock);
+        auto search = label_lookup_.find(query_label);
+
+        // 如果已经在索引中（搜索时）
+        if (search != label_lookup_.end()) {
+            lock.unlock();
+            
+             // 直接使用查询点的邻居作为入口点
+            linklistsizeint *ll_cur = get_linklist0(search->second);
+            int size = getListCount(ll_cur);
+            tableint *data = (tableint *) (ll_cur + 1);
+            
+            if (size > 0) {
+                // 找到查询点的邻居中距离最近的一个作为入口点
+                tableint best_entry_point = -1;
+                dist_t min_distance = std::numeric_limits<dist_t>::max();
+                
+                for (int j = 0; j < size; j++) {
+                    tableint neighbor_id = data[j];
+                    
+                    // 确认邻居在k-hop范围内
+                    labeltype neighbor_label = getExternalLabel(neighbor_id);
+                    if (khop_nbr.count(neighbor_label) == 0) continue;
+                    
+                    // 计算邻居与查询点的距离
+                    dist_t dist = fstdistfunc_(data_point, getDataByInternalId(neighbor_id), dist_func_param_);
+                    
+                    if (dist < min_distance) {
+                        min_distance = dist;
+                        best_entry_point = neighbor_id;
+                    }
+                }
+                
+                // 如果找到合适的入口点，直接返回
+                if (best_entry_point != -1) {
+                    return best_entry_point;
+                }
+            }
+        }
+        else {
+            lock.unlock();
+            
+            // 如果查询点不在索引中（构建时）
+            size_t num_elements = cur_element_count;
+            if (num_elements < khop_nbr.size()) {  // 当已索引点数量小于k-hop邻居数量时
+                // 遍历所有已索引点更高效
+                for (tableint i = 0; i < num_elements; i++) {
+                    if (!isMarkedDeleted(i)) {
+                        labeltype candidate_label = getExternalLabel(i);
+                        if (khop_nbr.count(candidate_label) > 0) {
+                            return i;  // 找到第一个合适的入口点
+                        }
+                    }
+                }
+            } else {  // 当k-hop邻居数量小于已索引点数量时
+                // 遍历k-hop邻居更高效
+                std::unique_lock<std::mutex> lock(label_lookup_lock);
+                for (const auto& nbr_label : khop_nbr) {
+                    auto search = label_lookup_.find(nbr_label);
+                    if (search != label_lookup_.end() && !isMarkedDeleted(search->second)) {
+                        return search->second;  // 找到第一个合适的入口点
+                    }
+                }
+            }
+        }
+        
+        return best_entry_point;
+    }
 
     // bare_bone_search means there is no check for deletions and stop condition is ignored in return of extra performance
     template <bool bare_bone_search = true, bool collect_metrics = false>
@@ -1022,7 +1173,7 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
         std::unique_lock <std::mutex> lock_label(getLabelOpMutex(label));
         if (!replace_deleted) {
             // addPoint(data_point, label, -1);
-            addPointLimit(data_point, label, -1, khop_nbr);
+            addPointLimit(data_point, label, khop_nbr);
             return;
         }
 
@@ -1040,7 +1191,7 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
         // else add point to vacant place
         if (!is_vacant_place) {
             // addPoint(data_point, label, -1);
-            addPointLimit(data_point, label, -1, khop_nbr);
+            addPointLimit(data_point, label, khop_nbr);
         } else {
             // we assume that there are no concurrent operations on deleted element
             labeltype label_replaced = getExternalLabel(internal_id_replaced);
@@ -1057,7 +1208,7 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
     }
 
     
-    tableint addPointLimit(const void *data_point, labeltype label, int level, std::unordered_set<labeltype> khop_nbr) {
+    tableint addPointLimit(const void *data_point, labeltype label, std::unordered_set<labeltype> khop_nbr) {
         tableint cur_c = 0;
         {
             // Checking if the element with the same label already exists
@@ -1077,7 +1228,7 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
                     unmarkDeletedInternal(existingInternalId);
                 }
 
-                // 这里修改了其邻居的连接情况，有可能加入不符合约束的节点？
+                // 暂不考虑更新过程中对约束的违反
                 updatePoint(data_point, existingInternalId, 1.0);
 
                 return existingInternalId;
@@ -1094,16 +1245,14 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
 
         // 初始化新节点的内存和属性
         std::unique_lock <std::mutex> lock_el(link_list_locks_[cur_c]);
-        int curlevel = getRandomLevel(mult_);
-        if (level > 0)
-            curlevel = level;
-
+        int curlevel = 0;
         element_levels_[cur_c] = curlevel;
 
+        // 设置索引的最大层级为0
         std::unique_lock <std::mutex> templock(global);
-        int maxlevelcopy = maxlevel_;
-        if (curlevel <= maxlevelcopy)
-            templock.unlock();
+        if (maxlevel_ < 0) maxlevel_ = 0;  // 确保最大层级至少为0
+        templock.unlock();
+
         tableint currObj = enterpoint_node_;
         tableint enterpoint_copy = enterpoint_node_;
 
@@ -1113,93 +1262,60 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
         memcpy(getExternalLabeLp(cur_c), &label, sizeof(labeltype));
         memcpy(getDataByInternalId(cur_c), data_point, data_size_);
 
-        if (curlevel) {
-            linkLists_[cur_c] = (char *) malloc(size_links_per_element_ * curlevel + 1);
-            if (linkLists_[cur_c] == nullptr)
-                throw std::runtime_error("Not enough memory: addPoint failed to allocate linklist");
-            memset(linkLists_[cur_c], 0, size_links_per_element_ * curlevel + 1);
-        }
+        // if (curlevel) {
+        //     linkLists_[cur_c] = (char *) malloc(size_links_per_element_ * curlevel + 1);
+        //     if (linkLists_[cur_c] == nullptr)
+        //         throw std::runtime_error("Not enough memory: addPoint failed to allocate linklist");
+        //     memset(linkLists_[cur_c], 0, size_links_per_element_ * curlevel + 1);
+        // }
 
         if ((signed)currObj != -1) {
-            // 不是第一个节点
+            std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates = 
+                searchBaseLayerLimit(data_point, label, khop_nbr);
+
+            // // 搜索kHop中最近的一些候选节点
+            // std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
             
-            if (curlevel < maxlevelcopy) {
-                // 逐层向下寻找
-                dist_t curdist = fstdistfunc_(data_point, getDataByInternalId(currObj), dist_func_param_);
-                for (int level = maxlevelcopy; level > curlevel; level--) {
-                    bool changed = true;
-                    while (changed) {
-                        changed = false;
-                        unsigned int *data;
-                        std::unique_lock <std::mutex> lock(link_list_locks_[currObj]);
-                        data = get_linklist(currObj, level);
-                        int size = getListCount(data);
+            // // 遍历所有k-hop邻居，找出最近的ef_construction_个邻居
+            // for (auto& nbr_label : khop_nbr) {
+            //     // 跳过自身
+            //     if (nbr_label == label) continue;
+                
+            //     // 获取邻居的内部ID
+            //     std::unique_lock<std::mutex> lock(label_lookup_lock);
+            //     auto search = label_lookup_.find(nbr_label);
+            //     if (search == label_lookup_.end()) continue; // 邻居可能尚未添加
+            //     tableint nbr_id = search->second;
+            //     lock.unlock();
+                
+            //     // 跳过已删除的节点
+            //     if (isMarkedDeleted(nbr_id)) continue;
+                
+            //     // 计算距离
+            //     dist_t dist = fstdistfunc_(data_point, getDataByInternalId(nbr_id), dist_func_param_);
+                
+            //     // 加入候选集
+            //     if (top_candidates.size() < ef_construction_) {
+            //         top_candidates.emplace(dist, nbr_id);
+            //     } else if (dist < top_candidates.top().first) {
+            //         top_candidates.pop();
+            //         top_candidates.emplace(dist, nbr_id);
+            //     }
+            // }
 
-                        tableint *datal = (tableint *) (data + 1);
-                        for (int i = 0; i < size; i++) {
-                            tableint cand = datal[i];
-                            if (cand < 0 || cand > max_elements_)
-                                throw std::runtime_error("cand error");
-
-                            // 获取候选节点的外部标签
-                            labeltype cand_label = getExternalLabel(cand);
-                            
-                            // 检查候选节点是否在khop_nbr中
-                            if (!khop_nbr.count(cand_label))
-                                continue;  // 如果不在khop集合中，跳过此节点
-                            
-                            dist_t d = fstdistfunc_(data_point, getDataByInternalId(cand), dist_func_param_);
-                            if (d < curdist) {
-                                curdist = d;
-                                currObj = cand;
-                                changed = true;
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 在每一层建立连接
-            bool epDeleted = isMarkedDeleted(enterpoint_copy);
-            for (int level = std::min(curlevel, maxlevelcopy); level >= 0; level--) {
-                if (level > maxlevelcopy || level < 0)  // possible?
-                    throw std::runtime_error("Level error");
-    
-                // 搜索本层的候选邻居，使用的是 InternalId
-                std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates = searchBaseLayer(
-                        currObj, data_point, level);
-
-                // 过滤只保留 khop_nbr 内的节点
-                std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> filtered_candidates;
-                while (!top_candidates.empty()) {
-                    tableint cand_id = top_candidates.top().second;
-                    // 将 InternalId 转换为 Label
-                    labeltype cand_label = getExternalLabel(cand_id);
-                    if (khop_nbr.count(cand_label)) {
-                        filtered_candidates.push(top_candidates.top());
-                    }
-                    top_candidates.pop();
-                }
-                top_candidates = std::move(filtered_candidates);
-
-                if (epDeleted) {
-                    top_candidates.emplace(fstdistfunc_(data_point, getDataByInternalId(enterpoint_copy), dist_func_param_), enterpoint_copy);
-                    if (top_candidates.size() > ef_construction_)
-                        top_candidates.pop();
-                }
-                currObj = mutuallyConnectNewElement(data_point, cur_c, top_candidates, level, false);
-            }
+            // 启发式筛选并建立连接
+            mutuallyConnectNewElement(data_point, cur_c, top_candidates, 0, false);
         } else {
             // Do nothing for the first element
             enterpoint_node_ = 0;
-            maxlevel_ = curlevel;
+            maxlevel_ = 0;
         }
 
-        // Releasing lock for the maximum level
-        if (curlevel > maxlevelcopy) {
-            enterpoint_node_ = cur_c;
-            maxlevel_ = curlevel;
-        }
+        // // Releasing lock for the maximum level
+        // if (curlevel > maxlevelcopy) {
+        //     enterpoint_node_ = cur_c;
+        //     maxlevel_ = curlevel;
+        // }
         return cur_c;
     }
 
@@ -1532,6 +1648,54 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
             result.push(std::pair<dist_t, labeltype>(rez.first, getExternalLabel(rez.second)));
             top_candidates.pop();
         }
+        return result;
+    }
+
+    std::priority_queue<std::pair<dist_t, labeltype>>
+    searchKnnLimit(size_t k, labeltype query_label) const {
+        std::priority_queue<std::pair<dist_t, labeltype>> result;
+        if (cur_element_count == 0) return result;
+    
+        // // 获取查询点的k-hop邻居
+        // std::unordered_set<labeltype> khop_nbr = graph_rel->getKHopNodes(query_label, graph_hopk);
+        
+        // // 直接使用searchBaseLayerLimit在k-hop邻居中搜索
+        // std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates = 
+            // const_cast<GraphHNSW*>(this)->searchBaseLayerLimit(query_data, query_label, khop_nbr);
+
+        
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
+
+        std::unique_lock<std::mutex> lock(label_lookup_lock);
+        auto search = label_lookup_.find(query_label);
+        if (search == label_lookup_.end()) {
+            throw std::runtime_error("Label not found");
+        }
+        tableint curNodeNum = search->second;
+        char *data_point = (getDataByInternalId(curNodeNum));
+        lock.unlock();
+
+        // std::unique_lock<std::mutex> lock(link_list_locks_[curNodeNum]);
+    
+        int *data = (int*)get_linklist0(curNodeNum); // 只在第 0 层搜索
+        size_t size = getListCount((linklistsizeint*)data);
+        tableint *datal = (tableint *) (data + 1);
+
+        for (size_t j = 0; j < size; j++) {
+            tableint candidate_id = *(datal + j);
+            
+            char *currObj1 = (getDataByInternalId(candidate_id));
+            dist_t dist1 = fstdistfunc_(data_point, currObj1, dist_func_param_);
+            top_candidates.emplace(dist1, candidate_id);
+        }
+        
+        // 将搜索结果转换为最终格式
+        while (!top_candidates.empty()) {
+            std::pair<dist_t, tableint> rez = top_candidates.top();
+            result.push(std::pair<dist_t, labeltype>(rez.first, getExternalLabel(rez.second)));
+            top_candidates.pop();
+        }
+    
         return result;
     }
 
