@@ -329,7 +329,10 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
         const void *data_point, 
         labeltype query_label,
         std::unordered_set<labeltype>& khop_nbr) {
-        
+        // 返回的top candidates 应该是：
+        // 方案1:所有已经插入节点与khop-nbr的交集，需要按顺序返回
+        // 方案2: 使用已有框架，从q的邻居节点出发的1跳邻居，bfs方式按顺序返回
+        // 保持数量<=ef_construction_
         // 获取一个合适的起始点
         tableint ep_id = getEntryPointForKHop(data_point, query_label, khop_nbr);
 
@@ -474,7 +477,44 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
         
         return best_entry_point;
     }
+    std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
+    searchLayerLimitForBuildV1(
+        const void *data_point, 
+        labeltype query_label,
+        std::unordered_set<labeltype>& khop_nbr) {
+        // 返回的top candidates 应该是：
+        // >>> 方案1:所有已经插入节点与khop-nbr的交集，需要按顺序返回
+        // 方案2: 使用已有框架，从q的邻居节点出发的1跳邻居，仍需要判断是否在邻居内
+        // 保持数量<=ef_construction_
+        // 值得注意的是，这个函数仅适用于构建阶段，因为在查找阶段我们完全不需要基于khop再进行过滤
+        
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> res;
 
+        size_t num_elements = cur_element_count;
+        if (num_elements < khop_nbr.size()) {
+            for (tableint i = 0; i<num_elements; i++) {
+                if (!isMarkedDeleted(i)) {
+                    labeltype candidate_label = getExternalLabel(i);
+                    if (khop_nbr.count(candidate_label) > 0) {
+                        dist_t dist = fstdistfunc_(data_point, getDataByInternalId(i), dist_func_param_);
+                        res.emplace(dist, i);
+                    }
+                }
+            }
+        }
+        else {
+            std::unique_lock<std::mutex> lock(label_lookup_lock);
+            for (const auto& nbr_label: khop_nbr) {
+                auto search = label_lookup_.find(nbr_label);
+                if (search != label_lookup_.end() && ! isMarkedDeleted(search->second)) {
+                    dist_t dist = fstdistfunc_(data_point, getDataByInternalId(search->second), dist_func_param_);
+                    res.emplace(dist, search -> second);
+                }
+            }
+        }
+        return res;
+    }
+    
     // bare_bone_search means there is no check for deletions and stop condition is ignored in return of extra performance
     template <bool bare_bone_search = true, bool collect_metrics = false>
     std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
@@ -1271,7 +1311,8 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
 
         if ((signed)currObj != -1) {
             std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates = 
-                searchBaseLayerLimit(data_point, label, khop_nbr);
+                searchLayerLimitForBuildV1(data_point, label, khop_nbr);
+                // searchBaseLayerLimit(data_point, label, khop_nbr);
 
             // // 搜索kHop中最近的一些候选节点
             // std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
@@ -1653,6 +1694,54 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
 
     std::priority_queue<std::pair<dist_t, labeltype>>
     searchKnnLimit(size_t k, labeltype query_label) const {
+        std::priority_queue<std::pair<dist_t, labeltype>> result;
+        if (cur_element_count == 0) return result;
+    
+        // // 获取查询点的k-hop邻居
+        // std::unordered_set<labeltype> khop_nbr = graph_rel->getKHopNodes(query_label, graph_hopk);
+        
+        // // 直接使用searchBaseLayerLimit在k-hop邻居中搜索
+        // std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates = 
+            // const_cast<GraphHNSW*>(this)->searchBaseLayerLimit(query_data, query_label, khop_nbr);
+
+        
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
+
+        std::unique_lock<std::mutex> lock(label_lookup_lock);
+        auto search = label_lookup_.find(query_label);
+        if (search == label_lookup_.end()) {
+            throw std::runtime_error("Label not found");
+        }
+        tableint curNodeNum = search->second;
+        char *data_point = (getDataByInternalId(curNodeNum));
+        lock.unlock();
+
+        // std::unique_lock<std::mutex> lock(link_list_locks_[curNodeNum]);
+    
+        int *data = (int*)get_linklist0(curNodeNum); // 只在第 0 层搜索
+        size_t size = getListCount((linklistsizeint*)data);
+        tableint *datal = (tableint *) (data + 1);
+
+        for (size_t j = 0; j < size; j++) {
+            tableint candidate_id = *(datal + j);
+            
+            char *currObj1 = (getDataByInternalId(candidate_id));
+            dist_t dist1 = fstdistfunc_(data_point, currObj1, dist_func_param_);
+            top_candidates.emplace(dist1, candidate_id);
+        }
+        
+        // 将搜索结果转换为最终格式
+        while (!top_candidates.empty()) {
+            std::pair<dist_t, tableint> rez = top_candidates.top();
+            result.push(std::pair<dist_t, labeltype>(rez.first, getExternalLabel(rez.second)));
+            top_candidates.pop();
+        }
+    
+        return result;
+    }
+
+    std::priority_queue<std::pair<dist_t, labeltype>>
+    searchKnnLimitMultiquery(size_t k, labeltype query_label) const {
         std::priority_queue<std::pair<dist_t, labeltype>> result;
         if (cur_element_count == 0) return result;
     

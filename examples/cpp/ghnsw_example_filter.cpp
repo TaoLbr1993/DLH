@@ -136,11 +136,11 @@ int main() {
     int k_query = 10;           // 查询时返回的邻居数
     int num_queries = 100;      // 测试查询次数
 
-    int k_hop = 3;              // k-hop参数
-    float prob = 0.001;          // 建边概率
+    int k_hop = 1;              // k-hop参数
+    float prob = 0.0005;          // 建边概率
 
     // 定义跳数划分，各部分之和等于k_hop
-    std::vector<int> hop_partitions = {1, 1, 1};
+    std::vector<int> hop_partitions = {1};
 
     // 确保划分之和等于k_hop
     int sum_hops = 0;
