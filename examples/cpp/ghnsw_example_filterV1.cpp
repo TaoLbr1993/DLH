@@ -22,19 +22,6 @@ private:
 
 // 封装近似搜索函数
 std::priority_queue<std::pair<float, hnswlib::labeltype>>
-searchKnnFilterV1(const void* query_data, size_t k, hnswlib::labeltype query_label, 
-               hnswlib::HierarchicalNSW<float>* index, hnswlib::GraphRelationSampler* grs, int k_hop) {
-    // 获取查询点的k-hop邻居集合
-    std::unordered_set<hnswlib::labeltype> khop_nbr = grs->getKHopNodes(query_label, k_hop);
-    
-    // 创建过滤器
-    KHopFilter filter(khop_nbr);
-    
-    // 使用过滤器进行搜索
-    return index->searchKnn(query_data, k, &filter);
-}
-
-std::priority_queue<std::pair<float, hnswlib::labeltype>> 
 searchKnnFilter(const void* query_data, size_t k, hnswlib::labeltype query_label, 
                hnswlib::HierarchicalNSW<float>* index, hnswlib::GraphRelationSampler* grs, int k_hop) {
     // 获取查询点的k-hop邻居集合
@@ -45,7 +32,7 @@ searchKnnFilter(const void* query_data, size_t k, hnswlib::labeltype query_label
     
     // 使用过滤器进行搜索
     return index->searchKnn(query_data, k, &filter);
-               }
+}
 
 // 封装精确搜索函数
 std::priority_queue<std::pair<float, hnswlib::labeltype>>
@@ -66,29 +53,6 @@ std::priority_queue<std::pair<float, hnswlib::labeltype>>
 searchKnnLimit(size_t k, hnswlib::labeltype query_label, 
                      hnswlib::GraphHNSW<float>* index) {
     return index->searchKnnLimit(k, query_label);
-}
-
-// graphHNSW改造为可以接受多个query，因此我们在这个封装函数里就把结果全部获取并返回
- std::priority_queue<std::pair<float, hnswlib::labeltype>>
-searchKnnLimitMultiQuery(size_t k, hnswlib::labeltype query_label, 
-                     std::vector<hnswlib::GraphHNSW<float>*> ghnsw_list,
-                     std::vector<int> hop_partitions) {
-    // 记录已处理的节点
-    std::unordered_set<hnswlib::labeltype> processed_nodes;
-    // 创建一个存储每层结果的数组，all_results[i] 表示第 i 次的结果
-    std::unordered_set<hnswlib::labeltype> all_results;
-
-    // 记录最近的k个结果
-    std::priority_queue<std::pair<float, hnswlib::labeltype>> candidates;
-    // 创建一个仅包含查询点的优先队列作为初始结果(第 0 次)
-    all_results.insert(query_label);
-    
-    for (int query_cnt=0; query_cnt<hop_partitions.size(); query_cnt++) {
-        
-        std::vector<std::priority_queue<std::pair<float, hnswlib::labeltype>>> current_layer_results;
-        ghnsw_list[hop_partitions[query_cnt]]->searchKnnLimitMultiquery(k, query_label, all_results, candidates);
-    }
-    return candidates;
 }
 
 // 验证结果是否在k-hop范围内
@@ -172,11 +136,11 @@ int main() {
     int k_query = 10;           // 查询时返回的邻居数
     int num_queries = 100;      // 测试查询次数
 
-    int k_hop = 3 ;              // k-hop参数
-    float prob = 0.0002;          // 建边概率
+    int k_hop = 1;              // k-hop参数
+    float prob = 0.0005;          // 建边概率
 
     // 定义跳数划分，各部分之和等于k_hop
-    std::vector<int> hop_partitions = {2,1};
+    std::vector<int> hop_partitions = {1};
 
     // 确保划分之和等于k_hop
     int sum_hops = 0;
@@ -273,16 +237,16 @@ int main() {
         int query_idx = rng() % max_elements;
         float* query_vector = data + query_idx * dim;
         hnswlib::labeltype query_label = query_idx;
-
+        
         // 获取查询点的k-hop邻居集合（用于后续验证）
         std::unordered_set<hnswlib::labeltype> khop_nbr = grs.getKHopNodes(query_label, k_hop);
-
+        
         // ==================== 带过滤器的HNSW ====================
         auto t1 = std::chrono::high_resolution_clock::now();
         auto approximate_results_filtered = searchKnnFilter(query_vector, k_query, query_label, normal_index, &grs, k_hop);
         auto t2 = std::chrono::high_resolution_clock::now();
         auto approx_time_filtered = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
-
+        
         // 验证结果
         verifyResults(approximate_results_filtered, khop_nbr, query_label, "带过滤器HNSW");
         
@@ -322,7 +286,7 @@ int main() {
         auto approximate_results_unfiltered = normal_index->searchKnn(query_vector, k_query);
         auto t2_unfiltered = std::chrono::high_resolution_clock::now();
         auto approx_time_unfiltered = std::chrono::duration_cast<std::chrono::microseconds>(t2_unfiltered - t1).count();
-                
+        
         // 计算不带过滤器HNSW的召回率
         int matches_unfiltered = 0;
         auto approx_results_unfiltered_copy = approximate_results_unfiltered;
@@ -339,52 +303,47 @@ int main() {
 
         // ==================== 单层图索引测试 ====================
         t1 = std::chrono::high_resolution_clock::now();
-        
-        std::priority_queue<std::pair<float, hnswlib::labeltype>> ghnsw_results =
-        searchKnnLimitMultiQuery(k_query, query_label, ghnsw_indices, hop_partitions);
-        std::cout << ghnsw_results.size() << std::endl;
-        while (ghnsw_results.size() > k_query) ghnsw_results.pop();
-        // // 记录已处理的节点
-        // std::unordered_set<hnswlib::labeltype> processed_nodes;
-        // // 创建一个存储每层结果的数组，all_results[i] 表示第 i 次的结果
-        // std::vector<std::priority_queue<std::pair<float, hnswlib::labeltype>>> all_results;
+        // 记录已处理的节点
+        std::unordered_set<hnswlib::labeltype> processed_nodes;
+        // 创建一个存储每层结果的数组，all_results[i] 表示第 i 次的结果
+        std::vector<std::priority_queue<std::pair<float, hnswlib::labeltype>>> all_results;
 
-        // // 创建一个仅包含查询点的优先队列作为初始结果(第 0 次)
-        // std::priority_queue<std::pair<float, hnswlib::labeltype>> query_point_queue;
-        // query_point_queue.emplace(0.0f, query_label); // 距离设为0
-        // all_results.push_back(query_point_queue);
+        // 创建一个仅包含查询点的优先队列作为初始结果(第 0 次)
+        std::priority_queue<std::pair<float, hnswlib::labeltype>> query_point_queue;
+        query_point_queue.emplace(0.0f, query_label); // 距离设为0
+        all_results.push_back(query_point_queue);
 
-        // // 进行第 query_cnt 次扩展
-        // for (int query_cnt = 0; query_cnt < hop_partitions.size(); query_cnt++) {
-        //     // 当前层的节点列表，直接从all_results中获取
-        //     std::vector<hnswlib::labeltype> current_layer_nodes;
-        //     auto& current_layer_queue = all_results[query_cnt];
-        //     auto queue_copy = current_layer_queue;
+        // 进行第 query_cnt 次扩展
+        for (int query_cnt = 0; query_cnt < hop_partitions.size(); query_cnt++) {
+            // 当前层的节点列表，直接从all_results中获取
+            std::vector<hnswlib::labeltype> current_layer_nodes;
+            auto& current_layer_queue = all_results[query_cnt];
+            auto queue_copy = current_layer_queue;
             
-        //     while (!queue_copy.empty()) {
-        //         hnswlib::labeltype node = queue_copy.top().second;
-        //         queue_copy.pop();
+            while (!queue_copy.empty()) {
+                hnswlib::labeltype node = queue_copy.top().second;
+                queue_copy.pop();
                 
-        //         // 检查节点是否已被处理过
-        //         if (processed_nodes.count(node) == 0) {
-        //             processed_nodes.insert(node);
-        //             current_layer_nodes.push_back(node);
-        //         }
-        //     }
+                // 检查节点是否已被处理过
+                if (processed_nodes.count(node) == 0) {
+                    processed_nodes.insert(node);
+                    current_layer_nodes.push_back(node);
+                }
+            }
             
-        //     std::vector<std::priority_queue<std::pair<float, hnswlib::labeltype>>> current_layer_results;
-        //     // 处理从当前层的节点开始扩展的结果，使用该次扩展对应的索引
-        //     for (auto node : current_layer_nodes) {
-        //         auto node_results = searchKnnLimit(k_query, node, ghnsw_indices[hop_partitions[query_cnt]]);
-        //         current_layer_results.push_back(node_results);
-        //     }
+            std::vector<std::priority_queue<std::pair<float, hnswlib::labeltype>>> current_layer_results;
+            // 处理从当前层的节点开始扩展的结果，使用该次扩展对应的索引
+            for (auto node : current_layer_nodes) {
+                auto node_results = searchKnnLimit(k_query, node, ghnsw_indices[hop_partitions[query_cnt]]);
+                current_layer_results.push_back(node_results);
+            }
 
-        //     // 合并当前层的结果
-        //     all_results.push_back(mergeQueuesUnique(current_layer_results, query_label));
-        // }
+            // 合并当前层的结果
+            all_results.push_back(mergeQueuesUnique(current_layer_results, query_label));
+        }
 
-        // // 合并所有结果
-        // std::priority_queue<std::pair<float, hnswlib::labeltype>> ghnsw_results = mergeQueuesUnique(all_results, query_label);
+        // 合并所有结果
+        std::priority_queue<std::pair<float, hnswlib::labeltype>> ghnsw_results = mergeQueuesUnique(all_results, query_label);
         t2 = std::chrono::high_resolution_clock::now();
         auto ghnsw_time = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
         

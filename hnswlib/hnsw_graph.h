@@ -1741,10 +1741,13 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
     }
 
     std::priority_queue<std::pair<dist_t, labeltype>>
-    searchKnnLimitMultiquery(size_t k, labeltype query_label) const {
-        std::priority_queue<std::pair<dist_t, labeltype>> result;
+    searchKnnLimitMultiquery(size_t k, labeltype src_label, std::unordered_set<labeltype>& query_labels, 
+        std::priority_queue<std::pair<dist_t, labeltype>>& result) const {
+            // 暂时不使用visited_list, 后续完善
+            // 需要调研visited list怎么用
+            // , VisitedList* vl
         if (cur_element_count == 0) return result;
-    
+        
         // // 获取查询点的k-hop邻居
         // std::unordered_set<labeltype> khop_nbr = graph_rel->getKHopNodes(query_label, graph_hopk);
         
@@ -1754,35 +1757,55 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
 
         
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
+        std::vector<tableint> nodeidx_list(query_labels.size());
 
         std::unique_lock<std::mutex> lock(label_lookup_lock);
-        auto search = label_lookup_.find(query_label);
-        if (search == label_lookup_.end()) {
-            throw std::runtime_error("Label not found");
+        int query_idx = 0;
+        for (auto query_label: query_labels) {
+            auto search = label_lookup_.find(query_label);
+            if (search == label_lookup_.end()) {
+                throw std::runtime_error("Label not found");
+            }
+            nodeidx_list[query_idx] = search->second;
+            // data_points[query_idx] = (getDataByInternalId(curNodeNum));
+            query_idx ++;
         }
-        tableint curNodeNum = search->second;
-        char *data_point = (getDataByInternalId(curNodeNum));
+
+        auto src_search = label_lookup_.find(src_label);
+        tableint srcNodeNum = src_search->second;
+        auto src_datapoint = (getDataByInternalId(srcNodeNum));
         lock.unlock();
 
         // std::unique_lock<std::mutex> lock(link_list_locks_[curNodeNum]);
-    
-        int *data = (int*)get_linklist0(curNodeNum); // 只在第 0 层搜索
-        size_t size = getListCount((linklistsizeint*)data);
-        tableint *datal = (tableint *) (data + 1);
+        query_idx = 0;
+        for (auto node: nodeidx_list) {
+            tableint curNodeNum = nodeidx_list[query_idx];
+            int *data = (int*)get_linklist0(curNodeNum); // 只在第 0 层搜索
+            size_t size = getListCount((linklistsizeint*)data);
+            tableint *datal = (tableint *) (data + 1);
 
-        for (size_t j = 0; j < size; j++) {
-            tableint candidate_id = *(datal + j);
-            
-            char *currObj1 = (getDataByInternalId(candidate_id));
-            dist_t dist1 = fstdistfunc_(data_point, currObj1, dist_func_param_);
-            top_candidates.emplace(dist1, candidate_id);
-        }
+            for (size_t j = 0; j < size; j++) {
+                tableint candidate_id = *(datal + j);
+                
+                if (query_labels.count(candidate_id) > 0) continue;
+                // if (visited_array[candidate_id] == visited_tag) continue;
+                // visited_array[candidate_id] = visited_array_tag;
+
+                char *currObj1 = (getDataByInternalId(candidate_id));
+                dist_t dist1 = fstdistfunc_(src_datapoint, currObj1, dist_func_param_);
+                result.emplace(dist1, getExternalLabel(candidate_id));
+                // if need only k results, change here
+                
+                query_labels.insert(candidate_id);
+            }
         
-        // 将搜索结果转换为最终格式
-        while (!top_candidates.empty()) {
-            std::pair<dist_t, tableint> rez = top_candidates.top();
-            result.push(std::pair<dist_t, labeltype>(rez.first, getExternalLabel(rez.second)));
-            top_candidates.pop();
+        // // 将搜索结果转换为最终格式
+        // while (!top_candidates.empty()) {
+        //     std::pair<dist_t, tableint> rez = top_candidates.top();
+        //     result.push(std::pair<dist_t, labeltype>(rez.first, getExternalLabel(rez.second)));
+        //     top_candidates.pop();
+        // }
+            query_idx ++;
         }
     
         return result;

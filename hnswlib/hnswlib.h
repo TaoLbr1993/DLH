@@ -230,3 +230,4 @@ AlgorithmInterface<dist_t>::searchKnnCloserFirst(const void* query_data, size_t 
 #include "pt2d_gen.h"
 #include "hnsw_graph.h"
 #include "hnsw_2dpt.h"
+#include "graph_range_breaker.h"
