@@ -112,6 +112,9 @@ if(HNSWLIB_EXAMPLES)
     # hnsw-flex
     add_executable(ghnsw_example_filter examples/cpp/ghnsw_example_filter.cpp)
     target_link_libraries(ghnsw_example_filter hnswlib)
+    
+    add_executable(ghnsw_breaker examples/cpp/ghnsw_breaker.cpp)
+    target_link_libraries(ghnsw_breaker hnswlib)
 
     add_executable(phnsw_example_filter examples/cpp/phnsw_example_filter.cpp)
     target_link_libraries(phnsw_example_filter hnswlib)
