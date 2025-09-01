@@ -231,3 +231,4 @@ AlgorithmInterface<dist_t>::searchKnnCloserFirst(const void* query_data, size_t 
 #include "hnsw_graph.h"
 #include "hnsw_2dpt.h"
 #include "graph_range_breaker.h"
+#include "hnsw_gdist.h"

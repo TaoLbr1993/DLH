@@ -204,5 +204,38 @@ namespace hnswlib {
             }
             return result;
         }
+
+        std::unordered_map<labeltype, int> getKHopNodesWiDist(labeltype id, int k) {
+            std::unordered_map<labeltype, int> result;
+            std::unordered_set<labeltype> visited;
+            std::unordered_set<labeltype> current_level;
+
+            current_level.insert(id);
+            visited.insert(id);
+
+            for (int hop=0; hop<k; hop++) {
+                std::unordered_set<labeltype> next_level;
+                for (const auto& node: current_level) {
+
+                    auto it_start = id_start_point_map.find(node);
+                    auto it_offset = offset_map.find(node);
+                    if (it_start == id_start_point_map.end() || it_offset == offset_map.end()) continue;
+                    
+                    size_t start = it_start->second;
+                    unsigned int offset = it_offset->second;
+                    for (size_t i=0; i < offset; i++) {
+                        labeltype neighbor = end_points[start+i];
+                        if (visited.find(neighbor) == visited.end()) {
+                            next_level.insert(neighbor);
+                            visited.insert(neighbor);
+                            result.emplace(neighbor, hop+1);
+                        }
+                    }
+                }
+                if (next_level.empty()) break;
+                current_level = std::move(next_level);
+            }
+            return result;
+        }
     };
 }

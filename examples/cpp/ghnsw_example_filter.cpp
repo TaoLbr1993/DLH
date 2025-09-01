@@ -165,18 +165,18 @@ void analyzeKHopDistribution(hnswlib::GraphRelationSampler& grs, int max_element
 }
 
 int main() {
-    int dim = 16;               // 维度
+    int dim = 32;               // 维度
     int max_elements = 50000;   // 最大元素数
-    int M = 32;                 // 最大连接数
-    int ef_construction = 200;  
-    int k_query = 10;           // 查询时返回的邻居数
+    int M = 16;                 // 最大连接数
+    int ef_construction = 50;  
+    int k_query = 50;           // 查询时返回的邻居数
     int num_queries = 100;      // 测试查询次数
 
-    int k_hop = 3 ;              // k-hop参数
+    int k_hop = 4 ;              // k-hop参数
     float prob = 0.0002;          // 建边概率
 
     // 定义跳数划分，各部分之和等于k_hop
-    std::vector<int> hop_partitions = {2,1};
+    std::vector<int> hop_partitions = {1,1,1,1};
 
     // 确保划分之和等于k_hop
     int sum_hops = 0;
@@ -255,16 +255,33 @@ int main() {
     auto ghnsw_build_time = std::chrono::duration_cast<std::chrono::milliseconds>(build_end - build_start).count();
     std::cout << "单层图索引构建完成，耗时: " << ghnsw_build_time << " 毫秒" << std::endl;
 
+    // 创建HNSWGDist 索引
+    int hnsw_hopk = 2;
+    std::cout << "正在构建HNSWGDist..." << std::endl;
+    build_start = std::chrono::high_resolution_clock::now();
+    hnswlib::HNSWGDist<float>* hnswgdist_index = new hnswlib::HNSWGDist<float>(&space, max_elements, M, ef_construction);
+    hnswgdist_index->setGraphHop(&grs, k_hop, hnsw_hopk);
+    for (int j=0; j < max_elements; j++) {
+        hnswgdist_index->addPoint(data + j * dim, j);
+    }
+    hnswgdist_index->setGDist();
+
+    build_end = std::chrono::high_resolution_clock::now();
+    auto hnswgdist_build_time = std::chrono::duration_cast<std::chrono::milliseconds>(build_end - build_start).count();
+    std::cout << "暴力搜索索引构建完成，耗时: " << hnswgdist_build_time << " 毫秒" << std::endl;
+
     // 召回率
     double total_recall_with_filter = 0.0;
     double total_recall_no_filter = 0.0;
     double total_recall_ghnsw = 0.0;
+    double total_recall_hnswgdist = 0.0;
     
     // 查询时间
     double total_time_hnsw_filter = 0.0;      // HNSW带过滤器的总查询时间
     double total_time_hnsw_no_filter = 0.0;   // HNSW不带过滤器的总查询时间
     double total_time_bf = 0.0;               // 暴力搜索的总查询时间
     double total_time_ghnsw = 0.0;      // 单层图索引的总查询时间
+    double total_time_hnswgdist = 0.0;
 
     // 随机选择查询点进行测试
     std::cout << "\n开始评估性能..." << std::endl;
@@ -344,47 +361,6 @@ int main() {
         searchKnnLimitMultiQuery(k_query, query_label, ghnsw_indices, hop_partitions);
         std::cout << ghnsw_results.size() << std::endl;
         while (ghnsw_results.size() > k_query) ghnsw_results.pop();
-        // // 记录已处理的节点
-        // std::unordered_set<hnswlib::labeltype> processed_nodes;
-        // // 创建一个存储每层结果的数组，all_results[i] 表示第 i 次的结果
-        // std::vector<std::priority_queue<std::pair<float, hnswlib::labeltype>>> all_results;
-
-        // // 创建一个仅包含查询点的优先队列作为初始结果(第 0 次)
-        // std::priority_queue<std::pair<float, hnswlib::labeltype>> query_point_queue;
-        // query_point_queue.emplace(0.0f, query_label); // 距离设为0
-        // all_results.push_back(query_point_queue);
-
-        // // 进行第 query_cnt 次扩展
-        // for (int query_cnt = 0; query_cnt < hop_partitions.size(); query_cnt++) {
-        //     // 当前层的节点列表，直接从all_results中获取
-        //     std::vector<hnswlib::labeltype> current_layer_nodes;
-        //     auto& current_layer_queue = all_results[query_cnt];
-        //     auto queue_copy = current_layer_queue;
-            
-        //     while (!queue_copy.empty()) {
-        //         hnswlib::labeltype node = queue_copy.top().second;
-        //         queue_copy.pop();
-                
-        //         // 检查节点是否已被处理过
-        //         if (processed_nodes.count(node) == 0) {
-        //             processed_nodes.insert(node);
-        //             current_layer_nodes.push_back(node);
-        //         }
-        //     }
-            
-        //     std::vector<std::priority_queue<std::pair<float, hnswlib::labeltype>>> current_layer_results;
-        //     // 处理从当前层的节点开始扩展的结果，使用该次扩展对应的索引
-        //     for (auto node : current_layer_nodes) {
-        //         auto node_results = searchKnnLimit(k_query, node, ghnsw_indices[hop_partitions[query_cnt]]);
-        //         current_layer_results.push_back(node_results);
-        //     }
-
-        //     // 合并当前层的结果
-        //     all_results.push_back(mergeQueuesUnique(current_layer_results, query_label));
-        // }
-
-        // // 合并所有结果
-        // std::priority_queue<std::pair<float, hnswlib::labeltype>> ghnsw_results = mergeQueuesUnique(all_results, query_label);
         t2 = std::chrono::high_resolution_clock::now();
         auto ghnsw_time = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
         
@@ -404,6 +380,43 @@ int main() {
         double recall_ghnsw = (double)matches_ghnsw / k_query;
         total_recall_ghnsw += recall_ghnsw;
         total_time_ghnsw += ghnsw_time;
+
+        // ==================== GDist索引测试 ====================
+        t1 = std::chrono::high_resolution_clock::now();
+        std::unordered_map<hnswlib::labeltype, int> ghops = grs.getKHopNodesWiDist(query_idx, k_query);
+
+        auto tt = std::chrono::high_resolution_clock::now();
+        auto khop_time = std::chrono::duration_cast<std::chrono::microseconds>(tt - t1).count();
+        std::cout << "khop time" << khop_time << std::endl;
+        
+        // 获取查询点的k-hop邻居集合
+        std::unordered_set<hnswlib::labeltype> khop_nbr_hnswgdist = grs.getKHopNodes(query_label, k_hop);
+        
+        // 创建过滤器
+        KHopFilter filter(khop_nbr_hnswgdist);
+
+        std::priority_queue<std::pair<float, hnswlib::labeltype>> hnswgdist_results = hnswgdist_index->searchKnnGDist(query_vector, k_query, ghops, &filter);
+        std::cout << hnswgdist_results.size() << std::endl;
+        while (hnswgdist_results.size() > k_query) hnswgdist_results.pop();
+        t2 = std::chrono::high_resolution_clock::now();
+        auto hnswgdist_time = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+        
+        // 验证结果
+        verifyResults(hnswgdist_results, khop_nbr, query_label, "单层图索引");
+        
+        // 计算单层图索引的召回率
+        int matches_hnswgdist = 0;
+        auto hnswgdist_results_copy = hnswgdist_results;
+        while (!hnswgdist_results_copy.empty()) {
+            if (exact_labels.count(hnswgdist_results_copy.top().second) > 0) {
+                matches_hnswgdist++;
+            }
+            hnswgdist_results_copy.pop();
+        }
+        
+        double recall_hnswgdist = (double)matches_hnswgdist / k_query;
+        total_recall_hnswgdist += recall_hnswgdist;
+        total_time_hnswgdist += hnswgdist_time;
 
         total_time_bf += exact_time;
 
@@ -428,6 +441,9 @@ int main() {
     std::cout << "单层图索引:         " << std::setw(14) << ghnsw_build_time 
           << std::setw(16) << (total_time_ghnsw / num_queries)
           << std::setw(12) << (total_recall_ghnsw / num_queries * 100) << std::endl;
+    std::cout << "GDist索引:         " << std::setw(14) << ghnsw_build_time 
+          << std::setw(16) << (total_time_hnswgdist / num_queries)
+          << std::setw(12) << (total_recall_hnswgdist / num_queries * 100) << std::endl;
 
  
     // 在main函数结束前调用
