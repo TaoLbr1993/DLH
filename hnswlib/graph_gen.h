@@ -7,6 +7,32 @@
 
 namespace hnswlib {
 
+    // compare struct and operator: used in searchKnn
+    template<typename dist_t>
+    class HopNbrTrible {
+    public:
+        bool in_hop = false;
+        dist_t dist;
+        tableint id;
+        HopNbrTrible(bool in_hop_, dist_t dist_, tableint id_):in_hop(in_hop_), dist(dist_), id(id_){}
+
+        // friend bool operator<(const HopNbrTrible<dist_t> &a, const HopNbrTrible<dist_t> &b) {
+        //     if (a.in_hop && !b.in_hop) return false;
+        //     if (!a.in_hop && b.in_hop) return true;
+        //     return a.dist > b.dist;
+        // }
+    };
+
+    template<typename dist_t>
+    bool operator<(const HopNbrTrible<dist_t> &a, const HopNbrTrible<dist_t> &b) {
+        // std::cout << (int)(!(a.in_hop)) << " " << (int)(!(b.in_hop)) << std::endl;
+        return (int)(!(a.in_hop))*0.5+a.dist < (int)(!(b.in_hop))*0.5+b.dist;
+        return a.dist < b.dist;
+        if (a.in_hop && !b.in_hop) return false;
+        if (!a.in_hop && b.in_hop) return true;
+        return a.dist < b.dist;
+    }
+
     //todo: generate a interface
     class GraphRelationSampler {
     public:
@@ -174,20 +200,19 @@ namespace hnswlib {
 
         // 根据给定的 id 和 k 值，获取 k-hop 节点集合（最多经过 k 条边到达的节点，不包括自身）
         std::unordered_set<labeltype> getKHopNodes(labeltype id, int k) {
+            auto it_start = id_start_point_map.find(0);
             std::unordered_set<labeltype> result;
             std::unordered_set<labeltype> visited;
             std::unordered_set<labeltype> current_level;
             current_level.insert(id);
             visited.insert(id);
-
             for (int hop = 0; hop < k; hop++) {
                 std::unordered_set<labeltype> next_level;
+
                 for (const auto& node : current_level) {
                     auto it_start = id_start_point_map.find(node);
                     auto it_offset = offset_map.find(node);
-                    
                     if (it_start == id_start_point_map.end() || it_offset == offset_map.end()) continue;
-
                     size_t start = it_start->second;
                     unsigned int offset = it_offset->second;
                     for (size_t i = 0; i < offset; i++) {
@@ -234,6 +259,28 @@ namespace hnswlib {
                 }
                 if (next_level.empty()) break;
                 current_level = std::move(next_level);
+            }
+            return result;
+        }
+
+        struct CompareByFirst {
+            constexpr bool operator()(std::pair<int, labeltype> const& a,
+                std::pair<int, labeltype> const& b) const noexcept {
+                return a.first < b.first;
+            }
+        };
+        std::unordered_set<labeltype> getMaxDegreeNodes(int k) {
+            std::priority_queue<std::pair<int, labeltype>, std::vector<std::pair<int, labeltype>>, CompareByFirst> node_pq;
+            for (auto kv: offset_map) {
+                node_pq.emplace(kv.second, kv.first);
+                if (node_pq.size() > k) {
+                    node_pq.pop();
+                }
+            }
+            std::unordered_set<labeltype> result;
+            while (node_pq.size() > 0){
+                result.insert(node_pq.top().second);
+                node_pq.pop();
             }
             return result;
         }

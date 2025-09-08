@@ -168,7 +168,10 @@ int main() {
     int dim = 32;               // 维度
     int max_elements = 50000;   // 最大元素数
     int M = 16;                 // 最大连接数
-    int ef_construction = 100;  
+
+    int nbrM = 4;
+
+    int ef_construction = 200;  
     int k_query = 50;           // 查询时返回的邻居数
     int num_queries = 100;      // 测试查询次数
 
@@ -270,7 +273,6 @@ int main() {
     // auto hnswgdist_build_time = std::chrono::duration_cast<std::chrono::milliseconds>(build_end - build_start).count();
     // std::cout << "暴力搜索索引构建完成，耗时: " << hnswgdist_build_time << " 毫秒" << std::endl;
 
-
     // 创建MixM HNSW索引
     std::cout << "正在构建MixM HNSW索引..." << std::endl;
     build_start = std::chrono::high_resolution_clock::now();
@@ -283,12 +285,28 @@ int main() {
     build_end = std::chrono::high_resolution_clock::now();
     auto mixm_build_time = std::chrono::duration_cast<std::chrono::milliseconds>(build_end - build_start).count();
 
+
+    // 创建MixM HNSW索引
+    std::cout << "正在构建addM HNSW索引..." << std::endl;
+    build_start = std::chrono::high_resolution_clock::now();
+    hnswlib::HNSWAddM<float>* addm_index = new hnswlib::HNSWAddM<float>(&space, max_elements, M, nbrM, ef_construction);
+    addm_index->setGraphHop(&grs, k_hop, 0);
+    for (int i=0; i<max_elements; i++) {
+        addm_index->addPointMixM(data + i * dim, i);
+        // mixm_index->addPoint(data + i * dim, i);
+    }
+    // addm_index->addNbrInfoAll(max_elements);
+    build_end = std::chrono::high_resolution_clock::now();
+    auto addm_build_time = std::chrono::duration_cast<std::chrono::milliseconds>(build_end - build_start).count();
+
+
     // 召回率
     double total_recall_with_filter = 0.0;
     double total_recall_no_filter = 0.0;
     double total_recall_ghnsw = 0.0;
     double total_recall_hnswgdist = 0.0;
     double total_recall_mixm = 0.0;
+    double total_recall_addm = 0.0;
     
     // 查询时间
     double total_time_hnsw_filter = 0.0;      // HNSW带过滤器的总查询时间
@@ -297,6 +315,7 @@ int main() {
     double total_time_ghnsw = 0.0;      // 单层图索引的总查询时间
     double total_time_hnswgdist = 0.0;
     double total_time_mixm = 0.0;
+    double total_time_addm = 0.0;
 
     // 随机选择查询点进行测试
     std::cout << "\n开始评估性能..." << std::endl;
@@ -382,10 +401,10 @@ int main() {
         KHopFilter mixmfilter(khop_nbr_mixm);
         std::unordered_set<hnswlib::tableint> nbrs_ti = mixm_index->getInternalIdSet(khop_nbr_mixm);
         t1 = std::chrono::high_resolution_clock::now();
-        std::priority_queue<std::pair<float, hnswlib::labeltype>> mixm_results =
-        mixm_index->searchKnnMixM(query_vector, k_query, nbrs_ti, &mixmfilter);
         // std::priority_queue<std::pair<float, hnswlib::labeltype>> mixm_results =
-        // mixm_index->searchKnnMixMDV2(query_vector, k_query, query_label, nbrs_ti, &mixmfilter);
+        // mixm_index->searchKnnMixM(query_vector, k_query, nbrs_ti, &mixmfilter);
+        std::priority_queue<std::pair<float, hnswlib::labeltype>> mixm_results =
+        mixm_index->searchKnnMixMDV2(query_vector, k_query, query_label, nbrs_ti, &mixmfilter);
         t2 = std::chrono::high_resolution_clock::now();
         auto mixm_time = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
 
@@ -403,6 +422,33 @@ int main() {
         double recall_mixm = (double)matches_mixm / k_query;
         total_recall_mixm += recall_mixm;
         total_time_mixm += mixm_time;
+
+        // ==================== MIXM HNSW ====================
+        std::unordered_set<hnswlib::labeltype> khop_nbr_addm = grs.getKHopNodes(query_label, k_hop); 
+        KHopFilter addmfilter(khop_nbr_addm);
+        std::unordered_set<hnswlib::tableint> nbrs_ti_addm = addm_index->getInternalIdSet(khop_nbr_addm);
+        t1 = std::chrono::high_resolution_clock::now();
+        // std::priority_queue<std::pair<float, hnswlib::labeltype>> addm_results =
+        // addm_index->searchKnnMixMD(query_vector, k_query, nbrs_ti_addm, &addmfilter);
+        std::priority_queue<std::pair<float, hnswlib::labeltype>> addm_results =
+        addm_index->searchKnnMixMDV2(query_vector, k_query, query_label, nbrs_ti_addm, &addmfilter);
+        t2 = std::chrono::high_resolution_clock::now();
+        auto addm_time = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+
+        verifyResults(addm_results, khop_nbr, query_label, "AddM HNSW");
+
+        int matches_addm = 0;
+        auto addm_results_copy = addm_results;
+        while (!addm_results_copy.empty()) {
+            if (exact_labels.count(addm_results_copy.top().second) > 0) {
+                matches_addm++;
+            }
+            addm_results_copy.pop();
+        }
+
+        double recall_addm = (double)matches_addm / k_query;
+        total_recall_addm += recall_addm;
+        total_time_addm += addm_time;
 
         total_time_bf += exact_time;
 
@@ -433,6 +479,10 @@ int main() {
     std::cout << "MIXM HNSW:          " << std::setw(14) << mixm_build_time 
           << std::setw(16) << (total_time_mixm / num_queries)
           << std::setw(12) << (total_recall_mixm / num_queries * 100) << std::endl;
+ 
+    std::cout << "ADDM HNSW:          " << std::setw(14) << addm_build_time 
+    << std::setw(16) << (total_time_addm / num_queries)
+    << std::setw(12) << (total_recall_addm / num_queries * 100) << std::endl;
  
     // 在main函数结束前调用
     analyzeKHopDistribution(grs, max_elements, 5); // 分析1到5跳的邻居分布

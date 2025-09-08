@@ -57,6 +57,12 @@ if(HNSWLIB_EXAMPLES)
     add_executable(ghnsw_example_filter examples/cpp/ghnsw_example_filter.cpp)
     target_link_libraries(ghnsw_example_filter hnswlib)
     
+    add_executable(ghnsw_addm examples/cpp/ghnsw_addm.cpp)
+    target_link_libraries(ghnsw_addm hnswlib)
+
+    add_executable(ghnsw_hnt examples/cpp/ghnsw_hopnbrtri.cpp)
+    target_link_libraries(ghnsw_hnt hnswlib)
+
     # add_executable(ghnsw_breaker examples/cpp/ghnsw_breaker.cpp)
     # target_link_libraries(ghnsw_breaker hnswlib)
 
