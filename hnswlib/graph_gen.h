@@ -15,18 +15,12 @@ namespace hnswlib {
         dist_t dist;
         tableint id;
         HopNbrTrible(bool in_hop_, dist_t dist_, tableint id_):in_hop(in_hop_), dist(dist_), id(id_){}
-
-        // friend bool operator<(const HopNbrTrible<dist_t> &a, const HopNbrTrible<dist_t> &b) {
-        //     if (a.in_hop && !b.in_hop) return false;
-        //     if (!a.in_hop && b.in_hop) return true;
-        //     return a.dist > b.dist;
-        // }
     };
 
     template<typename dist_t>
     bool operator<(const HopNbrTrible<dist_t> &a, const HopNbrTrible<dist_t> &b) {
         // std::cout << (int)(!(a.in_hop)) << " " << (int)(!(b.in_hop)) << std::endl;
-        return (int)(!(a.in_hop))*0.5+a.dist < (int)(!(b.in_hop))*0.5+b.dist;
+        return (int)(!(a.in_hop))*0.2+a.dist < (int)(!(b.in_hop))*0.2+b.dist;
         return a.dist < b.dist;
         if (a.in_hop && !b.in_hop) return false;
         if (!a.in_hop && b.in_hop) return true;

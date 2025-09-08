@@ -699,7 +699,7 @@ class HNSWAddM : public AlgorithmInterface<dist_t> {
             visited_array[ep_id] = visited_array_tag;
         }
         auto top_tmp = top_candidates.top();
-        lowerBound = top_tmp.in_hop*0.5+top_tmp.dist; // (a.in_hop))*0.1+a.dist
+        lowerBound = top_tmp.in_hop*0.2+top_tmp.dist; // (a.in_hop))*0.1+a.dist
         
         // visited_array[ep_id] = visited_array_tag;
 
@@ -776,7 +776,7 @@ class HNSWAddM : public AlgorithmInterface<dist_t> {
                         }
 
                         if (!top_candidates.empty())
-                            lowerBound = top_candidates.top().in_hop*0.5+top_candidates.top().dist;
+                            lowerBound = top_candidates.top().in_hop*0.2+top_candidates.top().dist;
                     }
                 }
             }

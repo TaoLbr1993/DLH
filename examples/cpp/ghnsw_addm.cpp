@@ -277,7 +277,7 @@ int main() {
     std::cout << "正在构建MixM HNSW索引..." << std::endl;
     build_start = std::chrono::high_resolution_clock::now();
     hnswlib::HNSWMixM<float>* mixm_index = new hnswlib::HNSWMixM<float>(&space, max_elements, M, ef_construction);
-    mixm_index->setGraphHop(&grs, k_hop, 0);
+    mixm_index->setGraphHop(&grs, k_hop, 0.1);
     for (int i=0; i<max_elements; i++) {
         mixm_index->addPointMixM(data + i * dim, i);
         // mixm_index->addPoint(data + i * dim, i);
