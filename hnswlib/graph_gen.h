@@ -20,10 +20,34 @@ namespace hnswlib {
     template<typename dist_t>
     bool operator<(const HopNbrTrible<dist_t> &a, const HopNbrTrible<dist_t> &b) {
         // std::cout << (int)(!(a.in_hop)) << " " << (int)(!(b.in_hop)) << std::endl;
-        return (int)(!(a.in_hop))*0.2+a.dist < (int)(!(b.in_hop))*0.2+b.dist;
+        // return (int)(!(a.in_hop))*0.05+a.dist < (int)(!(b.in_hop))*0.1+b.dist;
         return a.dist < b.dist;
         if (a.in_hop && !b.in_hop) return false;
         if (!a.in_hop && b.in_hop) return true;
+        return a.dist < b.dist;
+    }
+
+    template<typename dist_t>
+    class HopNbrTribleV2 {
+        public:
+            int hop_range;
+            int hop;
+            dist_t dist;
+            tableint id;
+
+        HopNbrTribleV2(int hop_range_, int hop_, dist_t dist_, tableint id_):hop_range(hop_range_), hop(hop_), dist(dist_), id(id_){}
+    };
+
+    template<typename dist_t>
+    bool operator<(const HopNbrTribleV2<dist_t> &a, const HopNbrTribleV2<dist_t> &b) {
+        // std::cout << (int)(!(a.in_hop)) << " " << (int)(!(b.in_hop)) << std::endl;
+        // return (int)(!(a.in_hop))*0.05+a.dist < (int)(!(b.in_hop))*0.1+b.dist;
+        // return a.dist < b.dist;
+
+        if ((a.hop >= -a.hop_range && b.hop >= -b.hop_range) || (a.hop < a.hop_range && b.hop < b.hop_range)) return a.dist < b.dist;
+        return (a.hop < b.hop);
+        if (a.hop < b.hop) return true;
+        if (a.hop > b.hop) return false;
         return a.dist < b.dist;
     }
 

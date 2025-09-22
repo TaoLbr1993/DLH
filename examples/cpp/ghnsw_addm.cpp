@@ -166,8 +166,8 @@ void analyzeKHopDistribution(hnswlib::GraphRelationSampler& grs, int max_element
 
 int main() {
     int dim = 32;               // 维度
-    int max_elements = 50000;   // 最大元素数
-    int M = 16;                 // 最大连接数
+    int max_elements = 100000;   // 最大元素数
+    int M = 12;                 // 最大连接数
 
     int nbrM = 4;
 
@@ -175,8 +175,8 @@ int main() {
     int k_query = 50;           // 查询时返回的邻居数
     int num_queries = 100;      // 测试查询次数
 
-    int k_hop = 5 ;              // k-hop参数
-    float prob = 0.00014;          // 建边概率
+    int k_hop = 4 ;              // k-hop参数
+    float prob = 0.0001;          // 建边概率
 
     // 定义跳数划分，各部分之和等于k_hop
     // std::vector<int> hop_partitions = {1,1,1,1};
@@ -277,7 +277,7 @@ int main() {
     std::cout << "正在构建MixM HNSW索引..." << std::endl;
     build_start = std::chrono::high_resolution_clock::now();
     hnswlib::HNSWMixM<float>* mixm_index = new hnswlib::HNSWMixM<float>(&space, max_elements, M, ef_construction);
-    mixm_index->setGraphHop(&grs, k_hop, 0.1);
+    mixm_index->setGraphHop(&grs, k_hop, 0);
     for (int i=0; i<max_elements; i++) {
         mixm_index->addPointMixM(data + i * dim, i);
         // mixm_index->addPoint(data + i * dim, i);
@@ -295,7 +295,7 @@ int main() {
         addm_index->addPointMixM(data + i * dim, i);
         // mixm_index->addPoint(data + i * dim, i);
     }
-    // addm_index->addNbrInfoAll(max_elements);
+    addm_index->addNbrInfoAll(max_elements);
     build_end = std::chrono::high_resolution_clock::now();
     auto addm_build_time = std::chrono::duration_cast<std::chrono::milliseconds>(build_end - build_start).count();
 
@@ -335,8 +335,8 @@ int main() {
         // 创建过滤器
         KHopFilter hnswbf_filter(khop_nbr_hnswbf);
         
-        auto t1 = std::chrono::high_resolution_clock::now();
         // 使用过滤器进行搜索
+        auto t1 = std::chrono::high_resolution_clock::now();
         auto approximate_results_filtered = normal_index->searchKnn(query_vector, k_query, &hnswbf_filter);
         //  = searchKnnFilter(query_vector, k_query, query_label, normal_index, &grs, k_hop);
         auto t2 = std::chrono::high_resolution_clock::now();
@@ -397,14 +397,14 @@ int main() {
         total_time_hnsw_no_filter += approx_time_unfiltered;
 
         // ==================== MIXM HNSW ====================
+        t1 = std::chrono::high_resolution_clock::now();
         std::unordered_set<hnswlib::labeltype> khop_nbr_mixm = grs.getKHopNodes(query_label, k_hop); 
         KHopFilter mixmfilter(khop_nbr_mixm);
         std::unordered_set<hnswlib::tableint> nbrs_ti = mixm_index->getInternalIdSet(khop_nbr_mixm);
-        t1 = std::chrono::high_resolution_clock::now();
-        // std::priority_queue<std::pair<float, hnswlib::labeltype>> mixm_results =
-        // mixm_index->searchKnnMixM(query_vector, k_query, nbrs_ti, &mixmfilter);
         std::priority_queue<std::pair<float, hnswlib::labeltype>> mixm_results =
-        mixm_index->searchKnnMixMDV2(query_vector, k_query, query_label, nbrs_ti, &mixmfilter);
+        mixm_index->searchKnnMixM(query_vector, k_query, nbrs_ti, &mixmfilter);
+        // std::priority_queue<std::pair<float, hnswlib::labeltype>> mixm_results =
+        // mixm_index->searchKnnMixMDV2(query_vector, k_query, query_label, nbrs_ti, &mixmfilter);
         t2 = std::chrono::high_resolution_clock::now();
         auto mixm_time = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
 
@@ -424,14 +424,17 @@ int main() {
         total_time_mixm += mixm_time;
 
         // ==================== MIXM HNSW ====================
+
         std::unordered_set<hnswlib::labeltype> khop_nbr_addm = grs.getKHopNodes(query_label, k_hop); 
+        std::unordered_set<hnswlib::labeltype> hop1_nbr_addm = grs.getKHopNodes(query_label, 1);
         KHopFilter addmfilter(khop_nbr_addm);
         std::unordered_set<hnswlib::tableint> nbrs_ti_addm = addm_index->getInternalIdSet(khop_nbr_addm);
+        std::unordered_set<hnswlib::tableint> nbrs_ti_hop1_addm = addm_index->getInternalIdSet(hop1_nbr_addm);
         t1 = std::chrono::high_resolution_clock::now();
         // std::priority_queue<std::pair<float, hnswlib::labeltype>> addm_results =
         // addm_index->searchKnnMixMD(query_vector, k_query, nbrs_ti_addm, &addmfilter);
         std::priority_queue<std::pair<float, hnswlib::labeltype>> addm_results =
-        addm_index->searchKnnMixMDV2(query_vector, k_query, query_label, nbrs_ti_addm, &addmfilter);
+        addm_index->searchKnnMixMDV4(query_vector, k_query, query_label, nbrs_ti_hop1_addm, nbrs_ti_addm, &addmfilter);
         t2 = std::chrono::high_resolution_clock::now();
         auto addm_time = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
 
