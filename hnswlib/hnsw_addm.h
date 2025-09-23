@@ -1285,7 +1285,7 @@ class HNSWAddM : public AlgorithmInterface<dist_t> {
                         flag_consider_candidate = stop_condition->should_consider_candidate(dist, lowerBound);
                     } else {
                         flag_consider_candidate = top_candidates.size() < ef || 
-                        ((hop_info>=-graph_hopk)) || (lowerBound > dist*1.amp_rat); //&&lowerBound > dist
+                        ((hop_info>=-graph_hopk)) || (lowerBound > dist*amp_rat); //&&lowerBound > dist
                     }
 
                     if (flag_consider_candidate) {
