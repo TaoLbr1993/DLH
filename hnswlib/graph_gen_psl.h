@@ -8,16 +8,16 @@
 namespace hnswlib {
 
     //todo: generate a interface
-    class GraphRelationSamplerPLL {
+    class GraphRelationSamplerPSL {
     public:
         float prob;
-        std::vector<std::pair<labeltype, labeltype>> edges;
+        std::vector<std::pair<int, int>> edges;
         std::unordered_map<labeltype, size_t> id_start_point_map;
         std::unordered_map<labeltype, unsigned int> offset_map;
         size_t * end_points{nullptr};
         // endpoints of id1 + endpoints of id2 + ...
 
-        GraphRelationSamplerPLL(float prob):prob(prob){}
+        GraphRelationSamplerPSL(float prob):prob(prob){}
 
         void clear() {
             // 清空原有数据
@@ -50,7 +50,7 @@ namespace hnswlib {
                 for (size_t j = i + 1; j < num_ids; j++) {
                     float s = distrib(rng);
                     if (s < prob) {
-                        edges.push_back(std::make_pair(ids[i], ids[j]));
+                        edges.push_back(std::make_pair((int)ids[i], (int)ids[j]));
                     }
                 }
             }

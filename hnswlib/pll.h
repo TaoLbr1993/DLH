@@ -4,7 +4,7 @@
 # pragma once
 
 # include "hnswlib.h"
-#include <malloc.h>
+#include <sys/malloc.h>
 #include <stdint.h>
 #include <xmmintrin.h>
 #include <sys/time.h>
