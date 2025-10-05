@@ -57,6 +57,7 @@ namespace hnswlib {
         float prob;
         std::unordered_map<labeltype, size_t> id_start_point_map;
         std::unordered_map<labeltype, unsigned int> offset_map;
+        std::vector<std::pair<int, int>> edge_pairs;
         size_t * end_points{nullptr};
         // endpoints of id1 + endpoints of id2 + ...
 
@@ -96,6 +97,7 @@ namespace hnswlib {
                 for (size_t j = i + 1; j < num_ids; j++) {
                     float s = distrib(rng);
                     if (s < prob) {
+                        edge_pairs.push_back(std::make_pair((int)ids[i], (int)ids[j]));
                         // 添加无向边
                         edges[i].push_back(ids[j]);
                         edges[j].push_back(ids[i]);
