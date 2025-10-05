@@ -1,6 +1,7 @@
 #ifndef DIS_H_
 #define DIS_H_
 
+// V2: judge with small 
 
 #include<string>
 #include<vector>
@@ -82,6 +83,7 @@ public:
 	vector<unsigned> *label;
 	bool* is_indep;
 	long long m;
+	int ** pos;
 
 	DisOracle();
 	DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool consider_indep);
@@ -616,6 +618,7 @@ DisOracle::DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool co
 	// we do not load graph, but directly use the data in create_bin
 	// load_graph(path);
 
+	// max_range -= 1;
 	create_ord(el);
 	nown = n;
 	construct_bp_label();
@@ -629,7 +632,7 @@ DisOracle::DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool co
 
 	printf( "MAXDIS=%d, nown=%d, consider_indep=%s\n", MAXDIS, nown, consider_indep?"true":"false" );
 
-	int **pos = new int*[n];
+	pos = new int*[n];
 	for( int i = 0; i < n; ++i ) pos[i] = new int[MAXDIS];
 	label = new vector<unsigned>[n];
 	is_indep = new bool[n];
@@ -797,17 +800,17 @@ DisOracle::DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool co
 
 	}
 
-	printf( "sorting...\n");
-	{
-		int pid = 0, np = 1;
-		for( int u = pid; u < n; u += np ) sort( label[u].begin(), label[u].end() );
-	}
+	// printf( "sorting...\n");
+	// {
+	// 	int pid = 0, np = 1;
+	// 	for( int u = pid; u < n; u += np ) sort( label[u].begin(), label[u].end() );
+	// }
 
 	printf( "Index size=%0.3lfMB, Max label size=%lld, Avg label size=%0.3lf\n",
 			(tt*1.0 + sizeof(BPLabel)*1.0*nown)/(1024*1024), s, tt*0.25/n);
 
-	for( int i = 0; i < n; ++i ) delete[] pos[i];
-	delete[] pos;
+	// for( int i = 0; i < n; ++i ) delete[] pos[i];
+	// delete[] pos;
 
 	init_query();
 }
@@ -959,8 +962,10 @@ bool DisOracle::query_by_bp_es(int u, int v, int search_k) {
 	BPLabel &idx_u = label_bp[u], &idx_v = label_bp[v];
 	for (int i = 0; i < N_ROOTS; ++i) {
 		int td = idx_u.bpspt_d[i] + idx_v.bpspt_d[i];
+		if (td <= search_k) return true;
 		// V1: directly compute
-		td += (idx_u.bpspt_s[i][0] & idx_v.bpspt_s[i][0]) ? -2 :
+		if (td-2 <= search_k)
+			td += (idx_u.bpspt_s[i][0] & idx_v.bpspt_s[i][0]) ? -2 :
 				((idx_u.bpspt_s[i][0] & idx_v.bpspt_s[i][1]) | (idx_u.bpspt_s[i][1] & idx_v.bpspt_s[i][0])) ? -1 : 0;
 		// V2: judge, but should record minimum d
 		// if (td - 2 <= d)
@@ -1084,11 +1089,28 @@ int DisOracle::query_by_nid(int u, int v) {
 	return dis;
 }
 
+// bool DisOracle::query_by_nid_es_DEP(int u, int v, int search_k) {
+// 	unsigned lu = (unsigned)label[u].size(), lv = (unsigned)label[v].size(), dis = MAXD;
+// 	for( int i = 0, j = 0; i < lu && j < lv; ++i ) {
+// 		for( ; j < lv && label[v][j]>>MAXMOV < label[u][i]>>MAXMOV; ++j ) ;
+// 		if( j < lv && label[v][j]>>MAXMOV == label[u][i]>>MAXMOV && ((label[u][i]&MASK) + (label[v][j]&MASK))<=search_k) return true;
+// 	}
+// 	return false;
+// }
+
 bool DisOracle::query_by_nid_es(int u, int v, int search_k) {
-	unsigned lu = (unsigned)label[u].size(), lv = (unsigned)label[v].size(), dis = MAXD;
+	unsigned lu = (unsigned)pos[u][MAXDIS-1], lv = (unsigned)pos[v][MAXDIS-1];
+	
 	for( int i = 0, j = 0; i < lu && j < lv; ++i ) {
 		for( ; j < lv && label[v][j]>>MAXMOV < label[u][i]>>MAXMOV; ++j ) ;
 		if( j < lv && label[v][j]>>MAXMOV == label[u][i]>>MAXMOV && ((label[u][i]&MASK) + (label[v][j]&MASK))<=search_k) return true;
+	}
+	
+	for (int i=pos[v][MAXDIS-1]; i<pos[v][MAXDIS]; i++) {
+		if (label[v][i]>>MAXMOV == u) return true;
+	}
+	for (int i=pos[u][MAXDIS-1]; i<pos[u][MAXDIS]; i++) {
+		if (label[u][i]>>MAXMOV == v) return true;
 	}
 	return false;
 }

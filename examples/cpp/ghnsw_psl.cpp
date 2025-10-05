@@ -177,9 +177,9 @@ void analyzeKHopDistribution(hnswlib::GraphRelationSampler& grs, int max_element
 }
 
 int main() {
-    int dim = 32;               // 维度
+    int dim = 128;               // 维度
     int max_elements = 50000;   // 最大元素数
-    int M = 12;                 // 最大连接数
+    int M = 80;                 // 最大连接数
 
     int nbrM = 4;
 
@@ -187,8 +187,8 @@ int main() {
     int k_query = 50;           // 查询时返回的邻居数
     int num_queries = 100;      // 测试查询次数
 
-    int k_hop = 5 ;              // k-hop参数
-    float prob = 0.00012;          // 建边概率
+    int k_hop = 4 ;              // k-hop参数
+    float prob = 0.0003;          // 建边概率
 
     // 定义跳数划分，各部分之和等于k_hop
     // std::vector<int> hop_partitions = {1,1,1,1};
@@ -395,7 +395,7 @@ int main() {
           << std::setw(16) << (total_time_hnsw_no_filter / num_queries)
           << std::setw(12) << (total_recall_no_filter / num_queries * 100) << std::endl;
 
-    std::cout << "HNSW-PLL:     " << std::setw(14) << hnswpsl_build_time 
+    std::cout << "HNSW-PSL:     " << std::setw(14) << hnswpsl_build_time 
           << std::setw(16) << (total_time_hnswpsl / num_queries)
           << std::setw(12) << (total_recall_hnswpsl / num_queries * 100) << std::endl;
 

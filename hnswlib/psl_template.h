@@ -1,8 +1,6 @@
 #ifndef DIS_H_
 #define DIS_H_
 
-// V2: judge with small 
-
 #include<omp.h>
 #include<string>
 #include<vector>
@@ -23,7 +21,6 @@ using namespace std;
 //#define MAXDIS 64
 #define N_ROOTS 16
 #define MAX_BP_THREADS 8
-#define N_OMP_THREADS 8
 
 #define MAXLINE 1024
 
@@ -85,12 +82,11 @@ public:
 	vector<unsigned> *label;
 	bool* is_indep;
 	long long m;
-	int ** pos;
 
 	DisOracle();
-	DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool consider_indep);
+	DisOracle(string path, bool consdier_indep = false);
 	void load_graph(string path);
-	void construct_bp_label(int max_range);
+	void construct_bp_label();
 	void save_idx(string path);
 	void load_idx(string path);
 	inline int query(int u, int v);
@@ -114,15 +110,11 @@ public:
 public:
 	static inline bool get_edge(char *line, int &a, int &b, int num_cnt = 2);
 	static inline int get_num_cnt(string path);
-	static void get_order(	vector<int> *con, int n, int *o);
+	static void get_order(	vector<int> *con, int n, int *o, int method);
 	static void create_bin(string path, int merge_equv = 0, int rank_method = RANK_STATIC);
-	void create_ord(vector<pair<int, int>> &);
-	void see_labels();
-	bool query_by_bp_es(int u, int v, int search_k);
-	bool query_by_nid_es(int u, int v, int search_k);
-	bool query_by_t_es(int u, int v, int search_k);
-	bool query(int u, int v, int search_k);
 
+public:
+	static void index_dis(string path, int num_thread = -1, int consider_indep = 0, int save_index = 0 );
 };
 
 //======implementation========
@@ -194,6 +186,14 @@ bool LinearHeap::has_rank(int r) {
 
 int LinearHeap::get_first_in_rank(int r) {
 	return rank[r].next == NULL ? -1 : rank[r].next->id;
+}
+
+void DisOracle::index_dis(string path, int num_thread, int consider_indep, int save_index ) {
+	if( num_thread > 0 )
+		omp_set_num_threads(num_thread);
+
+	DisOracle d(path, consider_indep == 1);
+	if( save_index ) d.save_idx(path);
 }
 
 bool DisOracle::get_edge(char *line, int &a, int &b, int num_cnt) {
@@ -273,13 +273,11 @@ void DisOracle::create_ord(vector<pair<int, int>> &el) {
     // string path, int merge_equv, int rank_method ) {
 	// FILE *fin = fopen( (path + "graph.txt").c_str(), "r" );
 	// char line[MAXLINE], st[64];
-	n = 0;
-	int a, b, num_cnt;
+	int n = 0, a, b, num_cnt = get_num_cnt(path);
 	// vector< pair<int,int> > el;
-	lint cnt = 0;
-	m = 0;
+	lint cnt = 0, m = 0;
     for (auto pair: el) {
-        n = max(max(n, pair.first+1), pair.second+1);
+        n = max(max(n, pair.first), pair.second);
         cnt ++;
     }
 	// printf( "Loading text, num_cnt=%d...\n", num_cnt );
@@ -292,21 +290,21 @@ void DisOracle::create_ord(vector<pair<int, int>> &el) {
 	// }
 	// fclose( fin );
 
-	vector<int> *contmp = new vector<int>[n];
+	vector<int> *con = new vector<int>[n];
 	printf( "Deduplicating...\n" );
 
 	for(long long i = 0; i < el.size(); ++i) {
-		contmp[el[i].first].push_back(el[i].second);
-		contmp[el[i].second].push_back(el[i].first);
+		con[el[i].first].push_back(el[i].second);
+		con[el[i].second].push_back(el[i].first);
 	}
 
 	for( int i = 0; i < n; ++i )
-		if( contmp[i].size() > 0 ){
-			sort( contmp[i].begin(), contmp[i].end() );
+		if( con[i].size() > 0 ){
+			sort( con[i].begin(), con[i].end() );
 			int p = 1;
-			for( int j = 1; j < (int) contmp[i].size(); ++j )
-				if( contmp[i][j-1] != contmp[i][j] ) contmp[i][p++] = contmp[i][j];
-			contmp[i].resize( p ); m += p;
+			for( int j = 1; j < (int) con[i].size(); ++j )
+				if( con[i][j-1] != con[i][j] ) con[i][p++] = con[i][j];
+			con[i].resize( p ); m += p;
 		}
 
 	long long *f1 = new long long[n];
@@ -325,8 +323,8 @@ void DisOracle::create_ord(vector<pair<int, int>> &el) {
 		memset( nowt, 0, sizeof(int) * (m+n+1) );
 
 		for( int v = 0; v < n; ++v )
-			for( int i = 0; i < (int) contmp[v].size(); ++i ) {
-				int u = contmp[v][i];
+			for( int i = 0; i < (int) con[v].size(); ++i ) {
+				int u = con[v][i];
 				if( nowt[f1[u]] != (v+1) ) {
 					++s;
 					nows[f1[u]] = s;
@@ -345,8 +343,8 @@ void DisOracle::create_ord(vector<pair<int, int>> &el) {
 		s = 0;
 		memset( nowt, 0, sizeof(int) * (m+n+1) );
 		for( int v = 0; v < n; ++v )
-			for( int i = 0; i <= (int) contmp[v].size(); ++i ) {
-				int u = (i == (int) contmp[v].size()) ? v : contmp[v][i];
+			for( int i = 0; i <= (int) con[v].size(); ++i ) {
+				int u = (i == (int) con[v].size()) ? v : con[v][i];
 				if( nowt[f2[u]] != (v+1) ) {
 					++s;
 					nows[f2[u]] = s;
@@ -368,34 +366,35 @@ void DisOracle::create_ord(vector<pair<int, int>> &el) {
 		for( int i = 0; i < n; ++i ) {
 			if( f1[i] != i ) {
 				++cnt1_n;
-				cnt1_m += (int) contmp[i].size();
+				cnt1_m += (int) con[i].size();
 			}
 			if( f2[i] != i ) {
 				++cnt2_n;
-				cnt2_m += (int) contmp[i].size();
+				cnt2_m += (int) con[i].size();
 			}
 		}
 
 		m = 0;
 		for( int i = 0; i < n; ++i ) {
-			if( f1[i] != i || f2[i] != i ) {contmp[i].clear(); continue;}
+			if( f1[i] != i || f2[i] != i ) {con[i].clear(); continue;}
 			int p = 0;
-			for( int j = 0; j < (int) contmp[i].size(); ++j ) {
-				int v = contmp[i][j];
-				if( f1[v] == v && f2[v] == v ) contmp[i][p++] = v;
+			for( int j = 0; j < (int) con[i].size(); ++j ) {
+				int v = con[i][j];
+				if( f1[v] == v && f2[v] == v ) con[i][p++] = v;
 			}
-			contmp[i].resize(p); m += p;
+			con[i].resize(p); m += p;
 		}
 		printf( "cnt1_n = %d, cnt1_m = %d, cnt2_n = %d, cnt2_m = %d, m = %lld\n", cnt1_n, cnt1_m, cnt2_n, cnt2_m, m );
 	}
 	printf( "Reordering...\n" );
 	int *f = new int[n];
-	get_order(contmp, n, f);
+	get_order(con, n, f);
 
-	int *oid = new int[n];
-	nid = new int[n];
+	int *oid = new int[n], *nid = new int[n];
 	for( int i = 0; i < n; ++i )
-		oid[i] = f[i], nid[f[i]] = i;
+		oid[i] = f[i], 
+    
+    [f[i]] = i;
 
 	for( int i = 0; i < n; ++i ) {
 		if(f1[i] != i) nid[i] = -nid[f1[i]]-1;
@@ -406,198 +405,203 @@ void DisOracle::create_ord(vector<pair<int, int>> &el) {
 	//delete[] score;
 
 	printf( "Creating adjacency list...\n" );
-	dat = new int[m];
-	deg = new int[n];
-	int **adj = new int *[n];
+	int *dat = new int[m], *deg = new int[n], **adj = new int *[n];
 
 	lint pos = 0;
 	for( int i = 0; i < n; ++i ) {
 		adj[i] = dat + pos;
-		pos += (int) contmp[oid[i]].size();
+		pos += (int) con[oid[i]].size();
 	}
 	memset( deg, 0, sizeof(int) * n );
 
 	for( int i = 0; i < n; ++i ) {
 		int ii = oid[i];
-		for( int p = 0; p < (int) contmp[ii].size(); ++p ) {
-			int jj = contmp[ii][p];
+		for( int p = 0; p < (int) con[ii].size(); ++p ) {
+			int jj = con[ii][p];
 			int j = nid[jj];
 			adj[j][deg[j]++] = i;
 		}
 	}
 
-	con = new int*[n];
-	long long p = 0;
-	for (int i=0; i<n; ++i) {con[i] = dat+p; p+= deg[i];}
+	printf( "Saving binary...\n" );
+	FILE *fout = fopen( (path + "graph-dis.bin").c_str(), "wb" );
 
-	delete[] adj; delete[] f; delete[] oid; 
+	fwrite( &n, sizeof(int), 1, fout );
+	fwrite( &m, sizeof(lint), 1, fout );
+	fwrite( deg, sizeof(int), n, fout );
+	fwrite( dat, sizeof(int), m, fout );
+	fwrite( nid, sizeof(int), n, fout );
+	fclose( fout );
+
+	printf( "Created binary file, n = %d, m = %lld\n", n, m );
+	delete[] adj; delete[] deg; delete[] dat; delete[] f; delete[] con; delete[] oid; delete[] nid;
 	delete[] f1; delete[] f2;
 }
 
-// void DisOracle::create_bin(string path, int merge_equv, int rank_method ) {
-// 	FILE *fin = fopen( (path + "graph.txt").c_str(), "r" );
-// 	char line[MAXLINE], st[64];
-// 	int n = 0, a, b, num_cnt = get_num_cnt(path);
-// 	vector< pair<int,int> > el;
-// 	lint cnt = 0, m = 0;
+void DisOracle::create_bin(string path, int merge_equv, int rank_method ) {
+	FILE *fin = fopen( (path + "graph.txt").c_str(), "r" );
+	char line[MAXLINE], st[64];
+	int n = 0, a, b, num_cnt = get_num_cnt(path);
+	vector< pair<int,int> > el;
+	lint cnt = 0, m = 0;
 
-// 	printf( "Loading text, num_cnt=%d...\n", num_cnt );
-// 	while( fgets( line, MAXLINE, fin ) ) {
-// 		if( !get_edge(line, a, b, num_cnt) ) continue;
-// 		if( a < 0 || b < 0 || a == b ) continue;
-// 		el.push_back(make_pair(a, b));
-// 		n = max(max(n, a+1), b+1);
-// 		if( (++cnt) % (lint) 10000000 == 0 ) printf( "%lld lines finished\n", cnt );
-// 	}
-// 	fclose( fin );
+	printf( "Loading text, num_cnt=%d...\n", num_cnt );
+	while( fgets( line, MAXLINE, fin ) ) {
+		if( !get_edge(line, a, b, num_cnt) ) continue;
+		if( a < 0 || b < 0 || a == b ) continue;
+		el.push_back(make_pair(a, b));
+		n = max(max(n, a+1), b+1);
+		if( (++cnt) % (lint) 10000000 == 0 ) printf( "%lld lines finished\n", cnt );
+	}
+	fclose( fin );
 
-// 	vector<int> *con = new vector<int>[n];
-// 	printf( "Deduplicating...\n" );
+	vector<int> *con = new vector<int>[n];
+	printf( "Deduplicating...\n" );
 
-// 	for(long long i = 0; i < el.size(); ++i) {
-// 		con[el[i].first].push_back(el[i].second);
-// 		con[el[i].second].push_back(el[i].first);
-// 	}
+	for(long long i = 0; i < el.size(); ++i) {
+		con[el[i].first].push_back(el[i].second);
+		con[el[i].second].push_back(el[i].first);
+	}
 
-// 	for( int i = 0; i < n; ++i )
-// 		if( con[i].size() > 0 ){
-// 			sort( con[i].begin(), con[i].end() );
-// 			int p = 1;
-// 			for( int j = 1; j < (int) con[i].size(); ++j )
-// 				if( con[i][j-1] != con[i][j] ) con[i][p++] = con[i][j];
-// 			con[i].resize( p ); m += p;
-// 		}
+	for( int i = 0; i < n; ++i )
+		if( con[i].size() > 0 ){
+			sort( con[i].begin(), con[i].end() );
+			int p = 1;
+			for( int j = 1; j < (int) con[i].size(); ++j )
+				if( con[i][j-1] != con[i][j] ) con[i][p++] = con[i][j];
+			con[i].resize( p ); m += p;
+		}
 
-// 	long long *f1 = new long long[n];
-// 	memset( f1, 0, sizeof(long long) * n );
+	long long *f1 = new long long[n];
+	memset( f1, 0, sizeof(long long) * n );
 
-// 	long long *f2 = new long long[n];
-// 	memset( f2, 0, sizeof(long long) * n );
+	long long *f2 = new long long[n];
+	memset( f2, 0, sizeof(long long) * n );
 
-// 	if( !merge_equv ) {
-// 		for( int i = 0; i < n; ++i ) f1[i] = i, f2[i] = i;
-// 	} else {
-// 	printf( "Merging...\n" );
-// 		long long s = 0;
-// 		long long *nows = new long long[m+n+1];
-// 		int *nowt = new int[m+n+1];
-// 		memset( nowt, 0, sizeof(int) * (m+n+1) );
+	if( !merge_equv ) {
+		for( int i = 0; i < n; ++i ) f1[i] = i, f2[i] = i;
+	} else {
+	printf( "Merging...\n" );
+		long long s = 0;
+		long long *nows = new long long[m+n+1];
+		int *nowt = new int[m+n+1];
+		memset( nowt, 0, sizeof(int) * (m+n+1) );
 
-// 		for( int v = 0; v < n; ++v )
-// 			for( int i = 0; i < (int) con[v].size(); ++i ) {
-// 				int u = con[v][i];
-// 				if( nowt[f1[u]] != (v+1) ) {
-// 					++s;
-// 					nows[f1[u]] = s;
-// 					nowt[f1[u]] = (v+1);
-// 					f1[u] = s;
-// 				} else f1[u] = nows[f1[u]];
-// 			}
+		for( int v = 0; v < n; ++v )
+			for( int i = 0; i < (int) con[v].size(); ++i ) {
+				int u = con[v][i];
+				if( nowt[f1[u]] != (v+1) ) {
+					++s;
+					nows[f1[u]] = s;
+					nowt[f1[u]] = (v+1);
+					f1[u] = s;
+				} else f1[u] = nows[f1[u]];
+			}
 
-// 		for( int v = 0; v < n; ++v )
-// 			if( nowt[f1[v]] != -1 ) {
-// 				nows[f1[v]] = v;
-// 				nowt[f1[v]] = -1;
-// 				f1[v] = v;
-// 			} else f1[v] = nows[f1[v]];
+		for( int v = 0; v < n; ++v )
+			if( nowt[f1[v]] != -1 ) {
+				nows[f1[v]] = v;
+				nowt[f1[v]] = -1;
+				f1[v] = v;
+			} else f1[v] = nows[f1[v]];
 
-// 		s = 0;
-// 		memset( nowt, 0, sizeof(int) * (m+n+1) );
-// 		for( int v = 0; v < n; ++v )
-// 			for( int i = 0; i <= (int) con[v].size(); ++i ) {
-// 				int u = (i == (int) con[v].size()) ? v : con[v][i];
-// 				if( nowt[f2[u]] != (v+1) ) {
-// 					++s;
-// 					nows[f2[u]] = s;
-// 					nowt[f2[u]] = (v+1);
-// 					f2[u] = s;
-// 				} else f2[u] = nows[f2[u]];
-// 			}
+		s = 0;
+		memset( nowt, 0, sizeof(int) * (m+n+1) );
+		for( int v = 0; v < n; ++v )
+			for( int i = 0; i <= (int) con[v].size(); ++i ) {
+				int u = (i == (int) con[v].size()) ? v : con[v][i];
+				if( nowt[f2[u]] != (v+1) ) {
+					++s;
+					nows[f2[u]] = s;
+					nowt[f2[u]] = (v+1);
+					f2[u] = s;
+				} else f2[u] = nows[f2[u]];
+			}
 
-// 		for( int v = 0; v < n; ++v )
-// 			if( nowt[f2[v]] != -1 ) {
-// 				nows[f2[v]] = v;
-// 				nowt[f2[v]] = -1;
-// 				f2[v] = v;
-// 			} else f2[v] = nows[f2[v]];
+		for( int v = 0; v < n; ++v )
+			if( nowt[f2[v]] != -1 ) {
+				nows[f2[v]] = v;
+				nowt[f2[v]] = -1;
+				f2[v] = v;
+			} else f2[v] = nows[f2[v]];
 
-// 		delete[] nows; delete[] nowt;
+		delete[] nows; delete[] nowt;
 
-// 		int cnt1_n = 0, cnt1_m = 0, cnt2_n = 0, cnt2_m = 0;
-// 		for( int i = 0; i < n; ++i ) {
-// 			if( f1[i] != i ) {
-// 				++cnt1_n;
-// 				cnt1_m += (int) con[i].size();
-// 			}
-// 			if( f2[i] != i ) {
-// 				++cnt2_n;
-// 				cnt2_m += (int) con[i].size();
-// 			}
-// 		}
+		int cnt1_n = 0, cnt1_m = 0, cnt2_n = 0, cnt2_m = 0;
+		for( int i = 0; i < n; ++i ) {
+			if( f1[i] != i ) {
+				++cnt1_n;
+				cnt1_m += (int) con[i].size();
+			}
+			if( f2[i] != i ) {
+				++cnt2_n;
+				cnt2_m += (int) con[i].size();
+			}
+		}
 
-// 		m = 0;
-// 		for( int i = 0; i < n; ++i ) {
-// 			if( f1[i] != i || f2[i] != i ) {con[i].clear(); continue;}
-// 			int p = 0;
-// 			for( int j = 0; j < (int) con[i].size(); ++j ) {
-// 				int v = con[i][j];
-// 				if( f1[v] == v && f2[v] == v ) con[i][p++] = v;
-// 			}
-// 			con[i].resize(p); m += p;
-// 		}
-// 		printf( "cnt1_n = %d, cnt1_m = %d, cnt2_n = %d, cnt2_m = %d, m = %lld\n", cnt1_n, cnt1_m, cnt2_n, cnt2_m, m );
-// 	}
-// 	printf( "Reordering...\n" );
-// 	int *f = new int[n];
-// 	get_order(con, n, f, rank_method);
+		m = 0;
+		for( int i = 0; i < n; ++i ) {
+			if( f1[i] != i || f2[i] != i ) {con[i].clear(); continue;}
+			int p = 0;
+			for( int j = 0; j < (int) con[i].size(); ++j ) {
+				int v = con[i][j];
+				if( f1[v] == v && f2[v] == v ) con[i][p++] = v;
+			}
+			con[i].resize(p); m += p;
+		}
+		printf( "cnt1_n = %d, cnt1_m = %d, cnt2_n = %d, cnt2_m = %d, m = %lld\n", cnt1_n, cnt1_m, cnt2_n, cnt2_m, m );
+	}
+	printf( "Reordering...\n" );
+	int *f = new int[n];
+	get_order(con, n, f, rank_method);
 
-// 	int *oid = new int[n], *nid = new int[n];
-// 	for( int i = 0; i < n; ++i )
-// 		oid[i] = f[i], 
+	int *oid = new int[n], *nid = new int[n];
+	for( int i = 0; i < n; ++i )
+		oid[i] = f[i], 
     
-//     [f[i]] = i;
+    [f[i]] = i;
 
-// 	for( int i = 0; i < n; ++i ) {
-// 		if(f1[i] != i) nid[i] = -nid[f1[i]]-1;
-// 		if(f2[i] != i) nid[i] = MAXN + nid[f2[i]];
-// 	}
+	for( int i = 0; i < n; ++i ) {
+		if(f1[i] != i) nid[i] = -nid[f1[i]]-1;
+		if(f2[i] != i) nid[i] = MAXN + nid[f2[i]];
+	}
 
-// 	//for(int i = 0; i < SCOREDIS; ++i) delete[] score[i];
-// 	//delete[] score;
+	//for(int i = 0; i < SCOREDIS; ++i) delete[] score[i];
+	//delete[] score;
 
-// 	printf( "Creating adjacency list...\n" );
-// 	int *dat = new int[m], *deg = new int[n], **adj = new int *[n];
+	printf( "Creating adjacency list...\n" );
+	int *dat = new int[m], *deg = new int[n], **adj = new int *[n];
 
-// 	lint pos = 0;
-// 	for( int i = 0; i < n; ++i ) {
-// 		adj[i] = dat + pos;
-// 		pos += (int) con[oid[i]].size();
-// 	}
-// 	memset( deg, 0, sizeof(int) * n );
+	lint pos = 0;
+	for( int i = 0; i < n; ++i ) {
+		adj[i] = dat + pos;
+		pos += (int) con[oid[i]].size();
+	}
+	memset( deg, 0, sizeof(int) * n );
 
-// 	for( int i = 0; i < n; ++i ) {
-// 		int ii = oid[i];
-// 		for( int p = 0; p < (int) con[ii].size(); ++p ) {
-// 			int jj = con[ii][p];
-// 			int j = nid[jj];
-// 			adj[j][deg[j]++] = i;
-// 		}
-// 	}
+	for( int i = 0; i < n; ++i ) {
+		int ii = oid[i];
+		for( int p = 0; p < (int) con[ii].size(); ++p ) {
+			int jj = con[ii][p];
+			int j = nid[jj];
+			adj[j][deg[j]++] = i;
+		}
+	}
 
-// 	printf( "Saving binary...\n" );
-// 	FILE *fout = fopen( (path + "graph-dis.bin").c_str(), "wb" );
+	printf( "Saving binary...\n" );
+	FILE *fout = fopen( (path + "graph-dis.bin").c_str(), "wb" );
 
-// 	fwrite( &n, sizeof(int), 1, fout );
-// 	fwrite( &m, sizeof(lint), 1, fout );
-// 	fwrite( deg, sizeof(int), n, fout );
-// 	fwrite( dat, sizeof(int), m, fout );
-// 	fwrite( nid, sizeof(int), n, fout );
-// 	fclose( fout );
+	fwrite( &n, sizeof(int), 1, fout );
+	fwrite( &m, sizeof(lint), 1, fout );
+	fwrite( deg, sizeof(int), n, fout );
+	fwrite( dat, sizeof(int), m, fout );
+	fwrite( nid, sizeof(int), n, fout );
+	fclose( fout );
 
-// 	printf( "Created binary file, n = %d, m = %lld\n", n, m );
-// 	delete[] adj; delete[] deg; delete[] dat; delete[] f; delete[] con; delete[] oid; delete[] nid;
-// 	delete[] f1; delete[] f2;
-// }
+	printf( "Created binary file, n = %d, m = %lld\n", n, m );
+	delete[] adj; delete[] deg; delete[] dat; delete[] f; delete[] con; delete[] oid; delete[] nid;
+	delete[] f1; delete[] f2;
+}
 
 
 
@@ -616,26 +620,18 @@ DisOracle::DisOracle() {
 	label_bp = NULL; usd_bp = NULL;
 }
 
-DisOracle::DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool consider_indep) {
-	// we do not load graph, but directly use the data in create_bin
-	// load_graph(path);
-	omp_set_num_threads(N_OMP_THREADS);
+DisOracle::DisOracle(string path, bool consider_indep) {
+	load_graph(path);
 
-	// max_range -= 1;
-	create_ord(el);
-	nown = n;
-	construct_bp_label(max_range+1);
+	double t = omp_get_wtime();
+	construct_bp_label();
 
 	MAXDIS = 2; MAXMOV = 1;
-	std::cout << "nown" << nown << std::endl;
-	while( MAXINT / (nown * 2) >= MAXDIS && MAXDIS<=max_range) {MAXDIS *= 2;++MAXMOV;}
+	while( MAXINT / (nown * 2) >= MAXDIS ) {MAXDIS *= 2;++MAXMOV;}
 	MASK = MAXDIS - 1;
-
-	MAXDIS = MAXDIS<max_range?MAXDIS:max_range;
-
 	printf( "MAXDIS=%d, nown=%d, consider_indep=%s\n", MAXDIS, nown, consider_indep?"true":"false" );
 
-	pos = new int*[n];
+	int **pos = new int*[n];
 	for( int i = 0; i < n; ++i ) pos[i] = new int[MAXDIS];
 	label = new vector<unsigned>[n];
 	is_indep = new bool[n];
@@ -709,7 +705,7 @@ DisOracle::DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool co
 				for( int i = 0; i < (int) cand.size(); ++i ) {
 					used[cand[i]/8] = 0;
 					if( !prune_by_bp(u, cand[i], dis) )
-						if( can_update(cand[i], dis, nowdis) ) {cand[n_cand++] = cand[i];} else {++local_cnt_tmp;}
+						if( can_update(cand[i], dis, nowdis) ) cand[n_cand++] = cand[i]; else ++local_cnt_tmp;
 				}
 
 				cand.resize(n_cand); sort(cand.begin(), cand.end());
@@ -721,14 +717,16 @@ DisOracle::DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool co
 				for( int i = 0; i < (int) label[u].size(); ++i ) nowdis[label[u][i]>>MAXMOV] = -1;
 			}
 
-			if(pid==0) printf( "num_thread=%d", np);
+			if(pid==0) printf( "num_thread=%d,t1=%0.3lfsec,", np, local_cnt, local_cnt_tmp, local_cnt_red, omp_get_wtime()-t );
 			#pragma omp critical
 			{
 				cnt += local_cnt; cnt_tmp += local_cnt_tmp; cnt_red += local_cnt_red;
 			}
 			delete[] used; delete[] nowdis;
 		}
-		
+		printf( "dis=%d,cnt=%lld,cnt_tmp=%lld(%0.3lf),cnt_red=%lld(%0.3lf),t2=%0.3lfsec, ",
+				dis, cnt, cnt_tmp, 1.0*cnt_tmp/cnt, cnt_red, 1.0*cnt_red/cnt, omp_get_wtime()-t );
+
 		#pragma omp parallel
 		{
 			int pid = omp_get_thread_num(), np = omp_get_num_threads();
@@ -741,16 +739,18 @@ DisOracle::DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool co
 		}
 
 		delete[] label_new; pre_cnt = cnt;
+		printf( "t3=%0.3lfsec\n", omp_get_wtime()-t );
 	}
 
 	long long tt = 0, s = 0;
 	for( int i = 0; i < n; ++i )
 		tt += label[i].size() * 4, s = max(s, (long long) label[i].size());
+	printf( "Index size (Memory)=%0.3lfMB, Max label size=%lld, Avg label size=%0.3lf, Time = %0.3lf sec\n",
+			tt*1.0/(1024*1024), s, tt*0.25/n, omp_get_wtime()-t );
 
 	if(consider_indep && COMPUTE_INDEP_LABEL) {
 		printf( "Processing Independent Set...\n" );
 		long long cnt = 0, cnt_tmp = 0, cnt_red = 0;
-		
 		#pragma omp parallel
 		{
 			int pid = omp_get_thread_num(), np = omp_get_num_threads();
@@ -804,26 +804,31 @@ DisOracle::DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool co
 			}
 			delete[] used; delete[] nowdis; delete[] cand;
 		}
+		printf( "Indep: cnt=%lld,cnt_tmp=%lld(%0.3lf),cnt_red=%lld(%0.3lf),time=%0.3lfsec\n",
+				cnt, cnt_tmp, 1.0*cnt_tmp/cnt, cnt_red, 1.0*cnt_red/cnt, omp_get_wtime()-t );
 
 	}
 
-	// printf( "sorting...\n");
-	// {
-	// 	int pid = 0, np = 1;
-	// 	for( int u = pid; u < n; u += np ) sort( label[u].begin(), label[u].end() );
-	// }
+	printf( "sorting...\n");
+	#pragma omp parallel
+	{
+		int pid = omp_get_thread_num(), np = omp_get_num_threads();
+		for( int u = pid; u < n; u += np ) sort( label[u].begin(), label[u].end() );
+	}
 
-	printf( "Index size=%0.3lfMB, Max label size=%lld, Avg label size=%0.3lf\n",
-			(tt*1.0 + sizeof(BPLabel)*1.0*nown)/(1024*1024), s, tt*0.25/n);
+	t = omp_get_wtime()-t;
+	printf( "Index size=%0.3lfMB, Max label size=%lld, Avg label size=%0.3lf, Index Time = %0.3lf sec (%0.3lf min)\n",
+			(tt*1.0 + sizeof(BPLabel)*1.0*nown)/(1024*1024), s, tt*0.25/n, t, t/60.0 );
 
-	// for( int i = 0; i < n; ++i ) delete[] pos[i];
-	// delete[] pos;
+	for( int i = 0; i < n; ++i ) delete[] pos[i];
+	delete[] pos;
 
 	init_query();
 }
 
-void DisOracle::construct_bp_label(int max_range) {
+void DisOracle::construct_bp_label() {
 	printf( "Constructing BP Label...\n" );
+	double tt = omp_get_wtime();
 	label_bp = new BPLabel[nown];
 	usd_bp = new bool[n];
 	memset( usd_bp, 0, sizeof(bool) * n );
@@ -855,7 +860,6 @@ void DisOracle::construct_bp_label(int max_range) {
 		if(omp_get_thread_num() == 0) n_threads = omp_get_num_threads();
 	}
 	if( n_threads > MAX_BP_THREADS ) omp_set_num_threads(MAX_BP_THREADS);
-
 	#pragma omp parallel
 	{
 		int pid = omp_get_thread_num(), np = omp_get_num_threads();
@@ -887,7 +891,6 @@ void DisOracle::construct_bp_label(int max_range) {
 			}
 
 			for (int d = 0; que_t0 < que_h; ++d) {
-				if (d+1>max_range) break;
 				//int num_sibling_es = 0;
 				int num_child_es = 0;
 
@@ -897,6 +900,7 @@ void DisOracle::construct_bp_label(int max_range) {
 					for (int i = 0; i < deg[v]; ++i) {
 						int tv = con[v][i];
 						int td = d + 1;
+
 						if (d == tmp_d[tv]) {
 							if (v < tv) {
 								//sibling_es[num_sibling_es].first  = v;
@@ -943,20 +947,7 @@ void DisOracle::construct_bp_label(int max_range) {
 		}
 	}
 	omp_set_num_threads(n_threads);
-	printf( "\nBP Label Constructed, bp_size=%0.3lfMB\n", sizeof(BPLabel)*nown/(1024.0*1024.0));
-}
-
-void DisOracle::see_labels() {
-	int k = 0;
-	while (true){
-		if (label[k].size()>10){
-		for (int i=0; i<label[k].size(); i++) {
-			int cmp = label[k][i];
-			std::cout << (int)(cmp>>MAXMOV) << "," << (int)(cmp&MASK) << std::endl;
-		}
-		break;
-	} else {k++;}
-	}
+	printf( "\nBP Label Constructed, bp_size=%0.3lfMB, time = %0.3lf sec\n", sizeof(BPLabel)*nown/(1024.0*1024.0), omp_get_wtime() - tt );
 }
 
 int DisOracle::query_by_bp(int u, int v) {
@@ -970,22 +961,6 @@ int DisOracle::query_by_bp(int u, int v) {
 		if (td < d) d = td;
 	}
 	return d;
-}
-
-bool DisOracle::query_by_bp_es(int u, int v, int search_k) {
-	BPLabel &idx_u = label_bp[u], &idx_v = label_bp[v];
-	for (int i = 0; i < N_ROOTS; ++i) {
-		int td = idx_u.bpspt_d[i] + idx_v.bpspt_d[i];
-		if (td <= search_k) return true;
-		// V1: directly compute
-		if (td-2 <= search_k)
-			td += (idx_u.bpspt_s[i][0] & idx_v.bpspt_s[i][0]) ? -2 :
-				((idx_u.bpspt_s[i][0] & idx_v.bpspt_s[i][1]) | (idx_u.bpspt_s[i][1] & idx_v.bpspt_s[i][0])) ? -1 : 0;
-		// V2: judge, but should record minimum d
-		// if (td - 2 <= d)
-		if (td <= search_k) return true;
-	}
-	return false;
 }
 
 bool DisOracle::prune_by_bp(int u, int v, int d) {
@@ -1103,32 +1078,6 @@ int DisOracle::query_by_nid(int u, int v) {
 	return dis;
 }
 
-// bool DisOracle::query_by_nid_es_DEP(int u, int v, int search_k) {
-// 	unsigned lu = (unsigned)label[u].size(), lv = (unsigned)label[v].size(), dis = MAXD;
-// 	for( int i = 0, j = 0; i < lu && j < lv; ++i ) {
-// 		for( ; j < lv && label[v][j]>>MAXMOV < label[u][i]>>MAXMOV; ++j ) ;
-// 		if( j < lv && label[v][j]>>MAXMOV == label[u][i]>>MAXMOV && ((label[u][i]&MASK) + (label[v][j]&MASK))<=search_k) return true;
-// 	}
-// 	return false;
-// }
-
-bool DisOracle::query_by_nid_es(int u, int v, int search_k) {
-	unsigned lu = (unsigned)pos[u][MAXDIS-1], lv = (unsigned)pos[v][MAXDIS-1];
-	
-	for( int i = 0, j = 0; i < lu && j < lv; ++i ) {
-		for( ; j < lv && label[v][j]>>MAXMOV < label[u][i]>>MAXMOV; ++j ) ;
-		if( j < lv && label[v][j]>>MAXMOV == label[u][i]>>MAXMOV && ((label[u][i]&MASK) + (label[v][j]&MASK))<=search_k) return true;
-	}
-	
-	for (int i=pos[v][MAXDIS-1]; i<pos[v][MAXDIS]; i++) {
-		if (label[v][i]>>MAXMOV == u) return true;
-	}
-	for (int i=pos[u][MAXDIS-1]; i<pos[u][MAXDIS]; i++) {
-		if (label[u][i]>>MAXMOV == v) return true;
-	}
-	return false;
-}
-
 int DisOracle::query_by_t(int u, int v) {
 	++t;
 	if(t == MAXT) {
@@ -1175,53 +1124,6 @@ int DisOracle::query_by_t(int u, int v) {
 	return mind;
 }
 
-
-bool DisOracle::query_by_t_es(int u, int v, int search_k) {
-	++t;
-	if(t == MAXT) {
-		memset(last_t, 0, sizeof(tint) * n);
-		t=1;
-	}
-	char mind = MAXD;
-	if( !is_indep[u] ) {
-		int lu = (int) label[u].size();
-		for( int i = 0; i < lu; ++i ) {
-			int w = label[u][i]>>MAXMOV;
-			char d = label[u][i]&MASK;
-			last_t[w] = t; dis[w] = d;
-		}
-	} else {
-		for( int i = 0; i < deg[u]; ++i ) {
-			int x = con[u][i];
-			int lx = (int) label[x].size();
-			for( int j = 0; j < lx; ++j ) {
-				int w = label[x][j]>>MAXMOV;
-				char d = label[x][j]&MASK;
-				if( last_t[w] != t ) {last_t[w] = t; dis[w] = d+1;} else {dis[w]=min(dis[w],(char)(d+1));}
-			}
-		}
-	}
-	if( !is_indep[v] ) {
-		int lv = (int) label[v].size();
-		for( int i = 0; i < lv; ++i ) {
-			int w = label[v][i]>>MAXMOV;
-			char d = label[v][i]&MASK;
-			if(last_t[w] == t && (char)(d+dis[w])<=search_k) return true;
-		}
-	} else {
-		for( int i = 0; i < deg[v]; ++i ) {
-			int x = con[v][i];
-			int lx = (int) label[x].size();
-			for( int j = 0; j < lx; ++j ) {
-				int w = label[x][j]>>MAXMOV;
-				char d = label[x][j]&MASK;
-				if( last_t[w] == t && (char)(d+1+dis[w])<=search_k) return true;
-			}
-		}
-	}
-	return false;
-}
-
 int DisOracle::query(int u, int v) {
 	if( u == v ) return 0;
 	int type = 0;
@@ -1235,21 +1137,6 @@ int DisOracle::query(int u, int v) {
 	if( is_indep[u] && !is_indep[v] ) swap(u,v);
 	if( is_indep[u] && is_indep[v] && label[u].size() > label[v].size() ) swap(u,v);
 	return min(d, query_by_t(u, v));
-}
-
-bool DisOracle::query(int u, int v, int search_k) {
-	if( u == v ) return 0;
-	int type = 0;
-	u = nid[u]; v = nid[v];
-	if(u < 0) {u = -u-1; type = 1;} else if(u >= MAXN) {u = u-MAXN; type = 2;}
-	if(v < 0) {v = -v-1; type = 1;} else if(v >= MAXN) {v = v-MAXN; type = 2;}
-	if(u == v) return type == 1 ? (deg[u] == 0 ? MAXD : 2) : 1;
-	if( u >= nown || v >= nown ) return MAXD;
-	if (query_by_bp_es(u,v,search_k)) return true;
-	if(!is_indep[u] && !is_indep[v] && query_by_nid_es(u, v, search_k)) return true;
-	if( is_indep[u] && !is_indep[v] ) swap(u,v);
-	if( is_indep[u] && is_indep[v] && label[u].size() > label[v].size() ) swap(u,v);
-	return query_by_t_es(u, v, search_k);
 }
 
 DisOracle::~DisOracle() {

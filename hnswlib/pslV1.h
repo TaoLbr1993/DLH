@@ -1,15 +1,14 @@
 #ifndef DIS_H_
 #define DIS_H_
 
-// V2: judge with small 
+// V1: delete the code for sorting, but still got the same result
 
-#include<omp.h>
 #include<string>
 #include<vector>
 #include<cstring>
 #include<algorithm>
 #include<cstdio>
-#include <xmmintrin.h>
+// #include <xmmintrin.h>
 #include <stdint.h>
 
 using namespace std;
@@ -23,7 +22,6 @@ using namespace std;
 //#define MAXDIS 64
 #define N_ROOTS 16
 #define MAX_BP_THREADS 8
-#define N_OMP_THREADS 8
 
 #define MAXLINE 1024
 
@@ -85,12 +83,11 @@ public:
 	vector<unsigned> *label;
 	bool* is_indep;
 	long long m;
-	int ** pos;
 
 	DisOracle();
 	DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool consider_indep);
 	void load_graph(string path);
-	void construct_bp_label(int max_range);
+	void construct_bp_label();
 	void save_idx(string path);
 	void load_idx(string path);
 	inline int query(int u, int v);
@@ -619,12 +616,11 @@ DisOracle::DisOracle() {
 DisOracle::DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool consider_indep) {
 	// we do not load graph, but directly use the data in create_bin
 	// load_graph(path);
-	omp_set_num_threads(N_OMP_THREADS);
 
 	// max_range -= 1;
 	create_ord(el);
 	nown = n;
-	construct_bp_label(max_range+1);
+	construct_bp_label();
 
 	MAXDIS = 2; MAXMOV = 1;
 	std::cout << "nown" << nown << std::endl;
@@ -635,7 +631,7 @@ DisOracle::DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool co
 
 	printf( "MAXDIS=%d, nown=%d, consider_indep=%s\n", MAXDIS, nown, consider_indep?"true":"false" );
 
-	pos = new int*[n];
+	int ** pos = new int*[n];
 	for( int i = 0; i < n; ++i ) pos[i] = new int[MAXDIS];
 	label = new vector<unsigned>[n];
 	is_indep = new bool[n];
@@ -663,9 +659,8 @@ DisOracle::DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool co
 	for( long long cnt = 1, cnt_tmp = 0, cnt_red = 0, pre_cnt = 0; cnt && dis <= MAXDIS; ++dis ) {
 		cnt = 0, cnt_tmp = 0, cnt_red = 0;
 		vector<unsigned> *label_new = new vector<unsigned>[n];
-		#pragma omp parallel
 		{
-			int pid = omp_get_thread_num(), np = omp_get_num_threads();
+			int pid = 0, np = 1;
 			long long local_cnt = 0, local_cnt_tmp = 0, local_cnt_red = 0;
 			unsigned char *used = new unsigned char[n/8+1];
 			memset( used, 0, sizeof(unsigned char) * (n/8+1) );
@@ -722,16 +717,15 @@ DisOracle::DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool co
 			}
 
 			if(pid==0) printf( "num_thread=%d", np);
-			#pragma omp critical
+
 			{
 				cnt += local_cnt; cnt_tmp += local_cnt_tmp; cnt_red += local_cnt_red;
 			}
 			delete[] used; delete[] nowdis;
 		}
-		
-		#pragma omp parallel
+
 		{
-			int pid = omp_get_thread_num(), np = omp_get_num_threads();
+			int pid = 0, np = 1;
 			for( int u = pid; u < n; u += np ) {
 				label[u].insert(label[u].end(), label_new[u].begin(), label_new[u].end());
 				vector<unsigned>(label[u]).swap(label[u]);
@@ -750,10 +744,9 @@ DisOracle::DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool co
 	if(consider_indep && COMPUTE_INDEP_LABEL) {
 		printf( "Processing Independent Set...\n" );
 		long long cnt = 0, cnt_tmp = 0, cnt_red = 0;
-		
-		#pragma omp parallel
+
 		{
-			int pid = omp_get_thread_num(), np = omp_get_num_threads();
+			int pid = 0, np = 1;
 			long long local_cnt = 0, local_cnt_tmp = 0, local_cnt_red = 0, local_tt = 0, local_s = 0;
 			unsigned char *used = new unsigned char[n/8+1];
 			memset( used, 0, sizeof(unsigned char) * (n/8+1) );
@@ -798,7 +791,6 @@ DisOracle::DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool co
 				local_tt += n_cand * 4; local_s = max(local_s, (long long) n_cand); local_cnt += n_cand;
 			}
 
-			#pragma omp critical
 			{
 				cnt += local_cnt; cnt_tmp += local_cnt_tmp; cnt_red += local_cnt_red; tt += local_tt; s = max(s, local_s);
 			}
@@ -816,13 +808,13 @@ DisOracle::DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool co
 	printf( "Index size=%0.3lfMB, Max label size=%lld, Avg label size=%0.3lf\n",
 			(tt*1.0 + sizeof(BPLabel)*1.0*nown)/(1024*1024), s, tt*0.25/n);
 
-	// for( int i = 0; i < n; ++i ) delete[] pos[i];
-	// delete[] pos;
+	for( int i = 0; i < n; ++i ) delete[] pos[i];
+	delete[] pos;
 
 	init_query();
 }
 
-void DisOracle::construct_bp_label(int max_range) {
+void DisOracle::construct_bp_label() {
 	printf( "Constructing BP Label...\n" );
 	label_bp = new BPLabel[nown];
 	usd_bp = new bool[n];
@@ -850,15 +842,9 @@ void DisOracle::construct_bp_label(int max_range) {
 	}
 
 	int n_threads = 1;
-	#pragma omp parallel
-	{
-		if(omp_get_thread_num() == 0) n_threads = omp_get_num_threads();
-	}
-	if( n_threads > MAX_BP_THREADS ) omp_set_num_threads(MAX_BP_THREADS);
 
-	#pragma omp parallel
 	{
-		int pid = omp_get_thread_num(), np = omp_get_num_threads();
+		int pid = 0, np = 1;
 		if( pid == 0 ) printf( "n_threads_bp = %d\n", np );
 		vector<uint8_t> tmp_d(nown);
 		vector<pair<uint64_t, uint64_t> > tmp_s(nown);
@@ -887,7 +873,6 @@ void DisOracle::construct_bp_label(int max_range) {
 			}
 
 			for (int d = 0; que_t0 < que_h; ++d) {
-				if (d+1>max_range) break;
 				//int num_sibling_es = 0;
 				int num_child_es = 0;
 
@@ -897,6 +882,7 @@ void DisOracle::construct_bp_label(int max_range) {
 					for (int i = 0; i < deg[v]; ++i) {
 						int tv = con[v][i];
 						int td = d + 1;
+
 						if (d == tmp_d[tv]) {
 							if (v < tv) {
 								//sibling_es[num_sibling_es].first  = v;
@@ -942,7 +928,6 @@ void DisOracle::construct_bp_label(int max_range) {
 			}
 		}
 	}
-	omp_set_num_threads(n_threads);
 	printf( "\nBP Label Constructed, bp_size=%0.3lfMB\n", sizeof(BPLabel)*nown/(1024.0*1024.0));
 }
 
@@ -976,7 +961,6 @@ bool DisOracle::query_by_bp_es(int u, int v, int search_k) {
 	BPLabel &idx_u = label_bp[u], &idx_v = label_bp[v];
 	for (int i = 0; i < N_ROOTS; ++i) {
 		int td = idx_u.bpspt_d[i] + idx_v.bpspt_d[i];
-		if (td <= search_k) return true;
 		// V1: directly compute
 		if (td-2 <= search_k)
 			td += (idx_u.bpspt_s[i][0] & idx_v.bpspt_s[i][0]) ? -2 :
@@ -1103,28 +1087,11 @@ int DisOracle::query_by_nid(int u, int v) {
 	return dis;
 }
 
-// bool DisOracle::query_by_nid_es_DEP(int u, int v, int search_k) {
-// 	unsigned lu = (unsigned)label[u].size(), lv = (unsigned)label[v].size(), dis = MAXD;
-// 	for( int i = 0, j = 0; i < lu && j < lv; ++i ) {
-// 		for( ; j < lv && label[v][j]>>MAXMOV < label[u][i]>>MAXMOV; ++j ) ;
-// 		if( j < lv && label[v][j]>>MAXMOV == label[u][i]>>MAXMOV && ((label[u][i]&MASK) + (label[v][j]&MASK))<=search_k) return true;
-// 	}
-// 	return false;
-// }
-
 bool DisOracle::query_by_nid_es(int u, int v, int search_k) {
-	unsigned lu = (unsigned)pos[u][MAXDIS-1], lv = (unsigned)pos[v][MAXDIS-1];
-	
+	unsigned lu = (unsigned)label[u].size(), lv = (unsigned)label[v].size(), dis = MAXD;
 	for( int i = 0, j = 0; i < lu && j < lv; ++i ) {
 		for( ; j < lv && label[v][j]>>MAXMOV < label[u][i]>>MAXMOV; ++j ) ;
 		if( j < lv && label[v][j]>>MAXMOV == label[u][i]>>MAXMOV && ((label[u][i]&MASK) + (label[v][j]&MASK))<=search_k) return true;
-	}
-	
-	for (int i=pos[v][MAXDIS-1]; i<pos[v][MAXDIS]; i++) {
-		if (label[v][i]>>MAXMOV == u) return true;
-	}
-	for (int i=pos[u][MAXDIS-1]; i<pos[u][MAXDIS]; i++) {
-		if (label[u][i]>>MAXMOV == v) return true;
 	}
 	return false;
 }
