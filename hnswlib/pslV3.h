@@ -94,9 +94,9 @@ class BFLabelHashEle {
 
 	BFLabelHashEle(int n_ele_, int* pos, int max_size): n_ele(n_ele_) {
 		BloomFilter::bloom_parameters params;
-		params.projected_element_count = max_size/2;
+		params.projected_element_count = max_size/3;
 		params.random_seed = HASH_SEED;
-		params.false_positive_probability = 0.01;
+		params.false_positive_probability = 0.02;
 		params.compute_optimal_parameters();
 		bf = BloomFilter::bloom_filter(params);
 		// std::cout << "nele:" << n_ele_ << "maxsize" << max_size<< std::endl;
@@ -830,11 +830,7 @@ DisOracle::DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool co
 	
 	for( int i = 0; i < n; ++i ) {
 		// tt += label[i].size() * 4, s = max(s, (long long) label[i].size());
-		if (POS_ENHASH > MAXDIS)
-			tt += label[i].size() * 4;
-		else {
-			tt += pos[i][POS_ENHASH-1] * 4;
-		}
+		tt += label[i].size() * 4;
 	
 		s = max(s, (long long) label[i].size());
 	}
@@ -906,17 +902,7 @@ DisOracle::DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool co
 	// 	int pid = 0, np = 1;
 	// 	for( int u = pid; u < n; u += np ) sort( label[u].begin(), label[u].end() );
 	// }
-
-	const_hash();
-
-	if (POS_ENHASH <= MAXDIS) {
-		for (int i=0; i<MAXDIS-POS_ENHASH+1; i++) {
-			int hashsize = hashes[0][i].bf.memSize() + 4;
-			std::cout << "hashsize" << hashsize << std::endl;
-			tt += hashsize * n;
-		}
-	}
-
+	
 	printf( "Index size=%0.3lfMB, Max label size=%lld, Avg label size=%0.3lf\n",
 			(tt*1.0 + sizeof(BPLabel)*1.0*nown)/(1024*1024), s, tt*0.25/n);
 
@@ -1234,53 +1220,19 @@ int DisOracle::query_by_nid(int u, int v) {
 // 	return false;
 // }
 
-// bool DisOracle::query_by_nid_esV1(int u, int v, int search_k) {
-// 	// V1: early stop + range-aware filter
-// 	for (int ks = 1; ks<=search_k; ks++) {
-// 		// std::cout << "ks" << ks << std::endl;
-// 		unsigned lu = (unsigned)pos[u][ks], lv = (unsigned)pos[v][search_k - ks];
-// 		for (int i=(unsigned) pos[u][ks-1], j=0; i<lu && j<lv; i++) {
-// 			// std::cout << i << "," << j << std::endl;
-// 			for (; j<lv && label[v][j]>>MAXMOV < label[u][i]>>MAXMOV; j++) ;
-// 			if (j<lv && label[v][j]>>MAXMOV == label[u][i]>>MAXMOV) return true;
-// 		}
-// 	}
-// 	return false;
-// }
-
 bool DisOracle::query_by_nid_es(int u, int v, int search_k) {
-
-	int ktmp = min(search_k, POS_ENHASH);
-	for (int ks = 1; ks<ktmp; ks++) {
+	// V1: early stop + range-aware filter
+	for (int ks = 1; ks<=search_k; ks++) {
 		// std::cout << "ks" << ks << std::endl;
-		int ls = min(search_k-ks, POS_ENHASH-1);
-		unsigned lu = (unsigned)pos[u][ks], lv = (unsigned)pos[v][ls];
+		unsigned lu = (unsigned)pos[u][ks], lv = (unsigned)pos[v][search_k - ks];
 		for (int i=(unsigned) pos[u][ks-1], j=0; i<lu && j<lv; i++) {
 			// std::cout << i << "," << j << std::endl;
 			for (; j<lv && label[v][j]>>MAXMOV < label[u][i]>>MAXMOV; j++) ;
 			if (j<lv && label[v][j]>>MAXMOV == label[u][i]>>MAXMOV) return true;
 		}
 	}
-
-	if (POS_ENHASH<=search_k) {
-		for (int i=POS_ENHASH; i<=search_k; i++) {
-			int rr = search_k-i;
-			for (int j=0; j<=rr; j++) {
-				if (j<POS_ENHASH &&
-				hashes[u][i-POS_ENHASH].isIntersect(label[v], pos[v][j], pos[v][j+1]-pos[v][j])) return true;
-				else if (j>=POS_ENHASH && hashes[u][i-POS_ENHASH].isIntersect(hashes[v][j-POS_ENHASH])) return true;
-			}
-		}
-		for (int j=POS_ENHASH; j<=search_k; j++) {
-			int rr = min(search_k-j, POS_ENHASH-1);
-			for (int i=0; i<=rr; i++) {
-				if (hashes[v][j-POS_ENHASH].isIntersect(label[u], pos[u][i], pos[u][i+1]-pos[u][i])) return true;
-			}
-		}
-	}
 	return false;
 }
-
 
 
 int DisOracle::query_by_t(int u, int v) {
