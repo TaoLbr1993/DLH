@@ -304,5 +304,47 @@ namespace hnswlib {
             }
             return result;
         }
+    
+        void printInfo() {
+            std::cout << "GraphRelationSampler info: " << std::endl;
+            std::cout << "  prob: " << prob << std::endl;
+
+            // 基础统计
+            size_t nodes_with_edges = id_start_point_map.size();
+            size_t totalAdjEntries = 0; // CSR 中的邻接条目数（度数之和）
+            for (const auto& kv : offset_map) {
+                totalAdjEntries += kv.second;
+            }
+            size_t undirectedEdges = edge_pairs.size(); // 生成时存了一次无向边(i,j)
+
+            std::cout << "  number of nodes with edges: " << nodes_with_edges << std::endl;
+            std::cout << "  undirected edges (edge_pairs): " << undirectedEdges << std::endl;
+            std::cout << "  adjacency entries (CSR): " << totalAdjEntries << std::endl;
+
+            // 内存占用
+            auto toMB = [](size_t bytes) { return bytes / (1024.0 * 1024.0); };
+
+            size_t endPointsBytes = totalAdjEntries * sizeof(size_t);
+            size_t idMapDataBytes = id_start_point_map.size() * (sizeof(labeltype) + sizeof(size_t));
+            size_t offsetMapDataBytes = offset_map.size() * (sizeof(labeltype) + sizeof(unsigned int));
+            size_t edgePairsBytes = edge_pairs.capacity() * sizeof(std::pair<int,int>);
+
+            size_t totalApproxBytes = endPointsBytes + idMapDataBytes + offsetMapDataBytes + edgePairsBytes;
+
+            std::cout << "  memory usage (approx.):" << std::endl;
+            std::cout << "    end_points: " << endPointsBytes << " B (" << toMB(endPointsBytes) << " MB)" << std::endl;
+            std::cout << "    id_start_point_map data: " << idMapDataBytes << " B (" << toMB(idMapDataBytes) << " MB) [no container overhead]" << std::endl;
+            std::cout << "    offset_map data: " << offsetMapDataBytes << " B (" << toMB(offsetMapDataBytes) << " MB) [no container overhead]" << std::endl;
+            std::cout << "    edge_pairs capacity: " << edgePairsBytes << " B (" << toMB(edgePairsBytes) << " MB)" << std::endl;
+            std::cout << "  total approx: " << totalApproxBytes << " B (" << toMB(totalApproxBytes) << " MB)" << std::endl;
+
+            // 哈希表负载信息
+            std::cout << "  id_start_point_map: size=" << id_start_point_map.size()
+                      << ", buckets=" << id_start_point_map.bucket_count()
+                      << ", load_factor=" << id_start_point_map.load_factor() << std::endl;
+            std::cout << "  offset_map: size=" << offset_map.size()
+                      << ", buckets=" << offset_map.bucket_count()
+                      << ", load_factor=" << offset_map.load_factor() << std::endl;
+        }
     };
 }

@@ -92,26 +92,45 @@ class BFLabelHashEle {
 
 	BFLabelHashEle(): n_ele(0){};
 
-	BFLabelHashEle(int n_ele_, int* pos, int max_size): n_ele(n_ele_) {
-		BloomFilter::bloom_parameters params;
-		params.projected_element_count = max_size/2;
-		params.random_seed = HASH_SEED;
-		params.false_positive_probability = 0.01;
-		params.compute_optimal_parameters();
-		bf = BloomFilter::bloom_filter(params);
-		// std::cout << "nele:" << n_ele_ << "maxsize" << max_size<< std::endl;
-		for (int i=0; i<n_ele_; i++) bf.insert(pos[i]);
-		// if (bf.contains(pos[0])) std::cout << "test: true" << std::endl;
-		// std::cout << bf.element_count()<< std::endl;
-		// std::cout << bf.table_size_ << std::endl;
-		// std::cout << bf.salt_.size() << std::endl;
-	}
+	// BFLabelHashEle(int n_ele_, int* pos, int max_size): n_ele(n_ele_) {
+	// 	BloomFilter::bloom_parameters params;
+	// 	params.projected_element_count = max_size/2;
+	// 	params.random_seed = HASH_SEED;
+	// 	params.false_positive_probability = 0.01;
+	// 	params.compute_optimal_parameters();
+	// 	bf = BloomFilter::bloom_filter(params);
+	// 	// std::cout << "nele:" << n_ele_ << "maxsize" << max_size<< std::endl;
+	// 	for (int i=0; i<n_ele_; i++) bf.insert(pos[i]);
+	// 	// if (bf.contains(pos[0])) std::cout << "test: true" << std::endl;
+	// 	// std::cout << bf.element_count()<< std::endl;
+	// 	// std::cout << bf.table_size_ << std::endl;
+	// 	// std::cout << bf.salt_.size() << std::endl;
+	// }
 
-	bool isIntersect(std::vector<unsigned int> label, int start, int size) {
-		for (int i=0; i<size; i++)
-			if (bf.contains(label[start+i])) return true;
-		return false;
-	}
+    BFLabelHashEle(const std::vector<int>& ids, int max_size) : n_ele((int)ids.size()) {
+        BloomFilter::bloom_parameters params;
+        params.projected_element_count = max_size / 2;
+        params.random_seed = HASH_SEED;
+        params.false_positive_probability = 0.01;
+        params.compute_optimal_parameters();
+        bf = BloomFilter::bloom_filter(params);
+        for (int id : ids) bf.insert(id);
+    }
+
+	// bool isIntersect(std::vector<unsigned int> label, int start, int size) {
+	// 	for (int i=0; i<size; i++)
+	// 		if (bf.contains(label[start+i])) return true;
+	// 	return false;
+	// }
+
+	bool isIntersect(const std::vector<unsigned int>& enc_label, int start, int size, unsigned maxmov) const {
+        for (int i=0; i<size; i++) {
+            int wid = enc_label[start+i] >> maxmov;
+            if (bf.contains(wid)) return true;
+        }
+        return false;
+    }
+
 	bool isIntersect(BFLabelHashEle & bf2) {
 		BloomFilter::bloom_filter bft = bf | bf2.bf;
 		
@@ -496,14 +515,33 @@ void DisOracle::const_hash() {
 	}
 	std::cout << "size:" << maxcnt << std::endl;
 	for (int i=0; i<n; i++) hashes[i] = new BFLabelHashEle[MAXDIS-POS_ENHASH+1];
-	for (int i=0; i<n; i++) {
-		for (int j=POS_ENHASH; j<=MAXDIS; j++) {
-			// std::cout << "const:" << i << std::endl;
-			int size = j<MAXDIS?pos[i][j]-pos[i][j-1]:label[i].size()-pos[i][MAXDIS-1];
-			// std::cout << "i: " << i << "size:" << size << std::endl;
-			hashes[i][j-POS_ENHASH] = BFLabelHashEle(size, &pos[i][j], maxcnt);
-		}
-	}
+	// for (int i=0; i<n; i++) {
+	// 	for (int j=POS_ENHASH; j<=MAXDIS; j++) {
+	// 		// std::cout << "const:" << i << std::endl;
+	// 		int size = j<MAXDIS?pos[i][j]-pos[i][j-1]:label[i].size()-pos[i][MAXDIS-1];
+	// 		// std::cout << "i: " << i << "size:" << size << std::endl;
+	// 		hashes[i][j-POS_ENHASH] = BFLabelHashEle(size, &pos[i][j], maxcnt);
+	// 	}
+	// }
+
+	// 为每个分段提取顶点 id，并构建 BF
+    std::vector<int> ids; ids.reserve(1024);
+    for (int i=0; i<n; i++) {
+        for (int j=POS_ENHASH; j<= MAXDIS; j++) {
+            int start = pos[i][j-1];
+            int end   = (j<MAXDIS) ? pos[i][j] : (int)label[i].size();
+            int size  = std::max(0, end - start);
+
+            ids.clear();
+            ids.reserve(size);
+            for (int t=start; t<end; ++t) {
+                ids.push_back((int)(label[i][t] >> MAXMOV)); // 仅保留顶点 id
+            }
+
+            hashes[i][j-POS_ENHASH] = BFLabelHashEle(ids, maxcnt);
+        }
+    }
+
 	// std::cout << "table size: " << hashes[49998][MAXDIS-POS_ENHASH].bf.table_size_ << std::endl;
 }
 
@@ -719,7 +757,7 @@ DisOracle::DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool co
 	printf( "MAXDIS=%d, nown=%d, consider_indep=%s\n", MAXDIS, nown, consider_indep?"true":"false" );
 
 	pos = new int*[n];
-	for( int i = 0; i < n; ++i ) pos[i] = new int[MAXDIS];
+	for( int i = 0; i < n; ++i ) pos[i] = new int[MAXDIS + 1];
 	label = new vector<unsigned>[n];
 	is_indep = new bool[n];
 	memset(is_indep, 0, sizeof(bool) * n);
@@ -1052,15 +1090,19 @@ void DisOracle::construct_bp_label(int max_range) {
 }
 
 void DisOracle::see_labels() {
-	std::vector<int> cnts;
-	for (int i=0; i<MAXDIS; i++) cnts.push_back(0);
-	for (int i=0; i<n; i++) {
-		for (int j=0; j<MAXDIS; j++) {
-			cnts[j] += (pos[i][j+1]-pos[i][j]);
-		}
-	}
-	for (int j=0; j<MAXDIS; j++) std::cout << "dis i:" << cnts[j]/n << std::endl;
-
+	std::vector<long long> cnts(MAXDIS + 1, 0);
+    for (int i = 0; i < n; i++) {
+        // d = 0
+        cnts[0] += pos[i][0];
+        // d >= 1
+        for (unsigned d = 1; d <= MAXDIS; d++) {
+            cnts[d] += (pos[i][d] - pos[i][d - 1]);
+        }
+    }
+    for (unsigned d = 0; d <= MAXDIS; d++) {
+        double avg = n ? (double)cnts[d] / (double)n : 0.0;
+        std::cout << "dist " << d << ": " << avg << std::endl;
+    }
 }
 
 int DisOracle::query_by_bp(int u, int v) {
@@ -1262,22 +1304,46 @@ bool DisOracle::query_by_nid_es(int u, int v, int search_k) {
 		}
 	}
 
+	// if (POS_ENHASH<=search_k) {
+	// 	for (int i=POS_ENHASH; i<=search_k; i++) {
+	// 		int rr = search_k-i;
+	// 		for (int j=0; j<=rr; j++) {
+	// 			if (j<POS_ENHASH &&
+	// 			hashes[u][i-POS_ENHASH].isIntersect(label[v], pos[v][j], pos[v][j+1]-pos[v][j])) return true;
+	// 			else if (j>=POS_ENHASH && hashes[u][i-POS_ENHASH].isIntersect(hashes[v][j-POS_ENHASH])) return true;
+	// 		}
+	// 	}
+	// 	for (int j=POS_ENHASH; j<=search_k; j++) {
+	// 		int rr = min(search_k-j, POS_ENHASH-1);
+	// 		for (int i=0; i<=rr; i++) {
+	// 			if (hashes[v][j-POS_ENHASH].isIntersect(label[u], pos[u][i], pos[u][i+1]-pos[u][i])) return true;
+	// 		}
+	// 	}
+	// }
+
 	if (POS_ENHASH<=search_k) {
-		for (int i=POS_ENHASH; i<=search_k; i++) {
-			int rr = search_k-i;
-			for (int j=0; j<=rr; j++) {
-				if (j<POS_ENHASH &&
-				hashes[u][i-POS_ENHASH].isIntersect(label[v], pos[v][j], pos[v][j+1]-pos[v][j])) return true;
-				else if (j>=POS_ENHASH && hashes[u][i-POS_ENHASH].isIntersect(hashes[v][j-POS_ENHASH])) return true;
-			}
-		}
-		for (int j=POS_ENHASH; j<=search_k; j++) {
-			int rr = min(search_k-j, POS_ENHASH-1);
-			for (int i=0; i<=rr; i++) {
-				if (hashes[v][j-POS_ENHASH].isIntersect(label[u], pos[u][i], pos[u][i+1]-pos[u][i])) return true;
-			}
-		}
-	}
+        for (int i=POS_ENHASH; i<=search_k; i++) {
+            int rr = search_k-i;
+            for (int j=0; j<=rr; j++) {
+                if (j<POS_ENHASH) {
+                    int start = (j==0) ? 0 : pos[v][j-1];
+                    int size  = (j==0) ? pos[v][0] : (pos[v][j]-pos[v][j-1]);
+                    if (hashes[u][i-POS_ENHASH].isIntersect(label[v], start, size, MAXMOV)) return true;
+                } else {
+                    if (hashes[u][i-POS_ENHASH].isIntersect(hashes[v][j-POS_ENHASH])) return true;
+                }
+            }
+        }
+        for (int j=POS_ENHASH; j<=search_k; j++) {
+            int rr = min(search_k-j, POS_ENHASH-1);
+            for (int i=0; i<=rr; i++) {
+                int start = (i==0) ? 0 : pos[u][i-1];
+                int size  = (i==0) ? pos[u][0] : (pos[u][i]-pos[u][i-1]);
+                if (hashes[v][j-POS_ENHASH].isIntersect(label[u], start, size, MAXMOV)) return true;
+            }
+        }
+    }
+
 	return false;
 }
 
@@ -1401,9 +1467,12 @@ bool DisOracle::query(int u, int v, int search_k) {
 	if( u >= nown || v >= nown ) return MAXD;
 	if (query_by_bp_es(u,v,search_k)) return true;
 	if(!is_indep[u] && !is_indep[v] && query_by_nid_es(u, v, search_k)) return true;
-	if( is_indep[u] && !is_indep[v] ) swap(u,v);
-	if( is_indep[u] && is_indep[v] && label[u].size() > label[v].size() ) swap(u,v);
-	return query_by_t_es(u, v, search_k);
+
+	return false;
+	// if(!is_indep[u] && !is_indep[v]) return query_by_nid_es(u, v, search_k);
+	// if( is_indep[u] && !is_indep[v] ) swap(u,v);
+	// if( is_indep[u] && is_indep[v] && label[u].size() > label[v].size() ) swap(u,v);
+	// return query_by_t_es(u, v, search_k);
 }
 
 DisOracle::~DisOracle() {

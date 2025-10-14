@@ -209,6 +209,7 @@ int main() {
     }
     
     grs.genRelation(ids, max_elements);
+    grs.printInfo();
 
     // 生成随机数据
     std::mt19937 rng(47);
