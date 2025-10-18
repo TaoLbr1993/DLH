@@ -1220,15 +1220,65 @@ int DisOracle::query_by_nid(int u, int v) {
 // 	return false;
 // }
 
+// bool DisOracle::query_by_nid_es(int u, int v, int search_k) {
+// 	// V1: early stop + range-aware filter
+// 	for (int ks = 1; ks<=search_k; ks++) {
+// 		// std::cout << "ks" << ks << std::endl;
+// 		unsigned lu = (unsigned)pos[u][ks], lv = (unsigned)pos[v][search_k - ks];
+// 		for (int i=(unsigned) pos[u][ks-1], j=0; i<lu && j<lv; i++) {
+// 			// std::cout << i << "," << j << std::endl;
+// 			for (; j<lv && label[v][j]>>MAXMOV < label[u][i]>>MAXMOV; j++) ;
+// 			if (j<lv && label[v][j]>>MAXMOV == label[u][i]>>MAXMOV) return true;
+// 		}
+// 	}
+// 	return false;
+// }
+
+// bool DisOracle::query_by_nid_es(int u, int v, int search_k) {
+// 	// V2: debug, early stop + bit set intersection
+// 	++t;
+// 	if (t == MAXT) {
+// 		memset(last_t, 0, sizeof(tint)*n);
+// 		t=1;
+// 	}
+// 	// todo: swap u,v
+// 	int lu = (int) label[u].size();
+// 	for (int i=0; i<lu; i++) {
+// 		int w = label[u][i] >> MAXMOV;
+// 		char d = label[u][i]&MASK;
+// 		last_t[w] = t; dis[w] = d;
+// 	}
+// 	int lv = (int) label[v].size();
+// 	for (int i=0; i < lv; i++) {
+// 		int w = label[v][i]>>MAXMOV;
+// 		char d = label[v][i]&MASK;
+// 		if (last_t[w] == t && (char)(d+dis[w])<=search_k) return true;
+// 	}
+// 	return false;
+// }
+
 bool DisOracle::query_by_nid_es(int u, int v, int search_k) {
-	// V1: early stop + range-aware filter
-	for (int ks = 1; ks<=search_k; ks++) {
-		// std::cout << "ks" << ks << std::endl;
-		unsigned lu = (unsigned)pos[u][ks], lv = (unsigned)pos[v][search_k - ks];
-		for (int i=(unsigned) pos[u][ks-1], j=0; i<lu && j<lv; i++) {
-			// std::cout << i << "," << j << std::endl;
-			for (; j<lv && label[v][j]>>MAXMOV < label[u][i]>>MAXMOV; j++) ;
-			if (j<lv && label[v][j]>>MAXMOV == label[u][i]>>MAXMOV) return true;
+	// V2: early stop + bit set intersection + distance-aware labeling
+	++t;
+		if (t == MAXT) {
+			memset(last_t, 0, sizeof(tint)*n);
+			t=1;
+		}
+	for (int ks = 0; ks <=search_k; ks++) {
+		
+		int ru = pos[u][ks]; //(ks==search_k)?(int) label[u].size():pos[u][ks];
+		for (int i=0; i<ru; i++) {
+			int w = label[u][i] >> MAXMOV;
+			char d = label[u][i]&MASK;
+			last_t[w] = t; dis[w] = d;
+		}
+		int rks = std::max(0, search_k-ks);
+		int lv = (rks==0)?0:pos[v][rks-1];
+		int rv = pos[v][rks]; //(rks==search_k)?(int) label[v].size():pos[v][rks];
+		for (int i=lv; i < rv; i++) {
+			int w = label[v][i]>>MAXMOV;
+			char d = label[v][i]&MASK;
+			if (last_t[w] == t && (char)(d+dis[w])<=search_k) return true;
 		}
 	}
 	return false;
@@ -1352,7 +1402,8 @@ bool DisOracle::query(int u, int v, int search_k) {
 	if(u == v) return type == 1 ? (deg[u] == 0 ? MAXD : 2) : 1;
 	if( u >= nown || v >= nown ) return MAXD;
 	if (query_by_bp_es(u,v,search_k)) return true;
-	if(!is_indep[u] && !is_indep[v] && query_by_nid_es(u, v, search_k)) return true;
+	if(!is_indep[u] && !is_indep[v]) return query_by_nid_es(u, v, search_k);
+	return false;
 	if( is_indep[u] && !is_indep[v] ) swap(u,v);
 	if( is_indep[u] && is_indep[v] && label[u].size() > label[v].size() ) swap(u,v);
 	return query_by_t_es(u, v, search_k);
