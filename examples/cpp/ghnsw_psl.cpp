@@ -357,7 +357,7 @@ int main() {
 
         // 计算HNSW-PSL
         t1 = std::chrono::high_resolution_clock::now();
-        psl_index.init_query_node(k_query);
+        psl_index.init_query_node(query_label);
         PSLFilter hnswpsl_filter(query_label, k_hop, &psl_index);
 
         auto approximate_results_hnswpsl = normal_index->searchKnn(query_vector, k_query, &hnswpsl_filter);

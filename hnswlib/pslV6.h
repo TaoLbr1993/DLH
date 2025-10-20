@@ -1321,6 +1321,8 @@ int DisOracle::query_by_nid(int u, int v) {
 // 	return false;
 // }
 
+// V6: hnsw + psl + bloom filter + labeling parallel
+
 void DisOracle::init_query_node(int q) {
 	q = nid[q];
 	memset(dis, 64, sizeof(char) * n);
