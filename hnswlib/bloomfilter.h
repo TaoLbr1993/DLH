@@ -476,9 +476,9 @@ public:
 
    int memSize() {
        int ret = 40;
-       std::cout << "salt size" << salt_.size() << std::endl;
+      //  std::cout << "salt size" << salt_.size() << std::endl;
        std::cout << "table size" << size() << std::endl;
-       ret += salt_.size() * 4+4; // salt
+      //  ret += salt_.size() * 4+4; // salt
        ret += size() / 8; // bit_table_
       return ret;
    }
