@@ -34,6 +34,9 @@ endif()
 if(HNSWLIB_EXAMPLES)
     set(CMAKE_CXX_STANDARD 11)
 
+    # libfaiss 安装路径
+    list(APPEND CMAKE_PREFIX_PATH "$ENV{HOME}/.local")
+
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
       SET( CMAKE_CXX_FLAGS  "-Ofast -std=c++11 -DHAVE_CXX0X -openmp -fpic -ftree-vectorize" )
       check_cxx_compiler_flag("-march=native" COMPILER_SUPPORT_NATIVE_FLAG)
@@ -54,17 +57,27 @@ if(HNSWLIB_EXAMPLES)
     endif()
 
     # hnsw-flex
-    add_executable(ghnsw_example_filter examples/cpp/ghnsw_example_filter.cpp)
-    target_link_libraries(ghnsw_example_filter hnswlib)
+    # add_executable(ghnsw_example_filter examples/cpp/ghnsw_example_filter.cpp)
+    # target_link_libraries(ghnsw_example_filter hnswlib)
     
-    # add_executable(ghnsw_addm examples/cpp/ghnsw_addm.cpp)
-    # target_link_libraries(ghnsw_addm hnswlib)
+    # # add_executable(ghnsw_addm examples/cpp/ghnsw_addm.cpp)
+    # # target_link_libraries(ghnsw_addm hnswlib)
 
-    add_executable(ghnsw_hnt examples/cpp/ghnsw_hopnbrtri.cpp)
-    target_link_libraries(ghnsw_hnt hnswlib)
+    # add_executable(ghnsw_hnt examples/cpp/ghnsw_hopnbrtri.cpp)
+    # target_link_libraries(ghnsw_hnt hnswlib)
 
-    add_executable(ghnsw_psl examples/cpp/ghnsw_psl.cpp)
-    target_link_libraries(ghnsw_psl hnswlib)
+    # add_executable(ghnsw_psl examples/cpp/ghnsw_psl.cpp)
+    # target_link_libraries(ghnsw_psl hnswlib)
+
+    find_package(faiss REQUIRED)
+    add_executable(ghnsw_test examples/cpp/ghnsw_test.cpp)
+    target_link_libraries(ghnsw_test hnswlib faiss)
+
+    # # 仅对 g++ 构建的 ghnsw_psl 开启调试信息并关闭优化
+    # if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    #   target_compile_options(ghnsw_psl PRIVATE -g -ggdb3 -O0 -fno-omit-frame-pointer)
+    #   target_link_options(ghnsw_psl PRIVATE -Wl,--build-id)
+    # endif()
 
     # add_executable(ghnsw_pll examples/cpp/ghnsw_pll.cpp)
     # target_link_libraries(ghnsw_pll hnswlib)

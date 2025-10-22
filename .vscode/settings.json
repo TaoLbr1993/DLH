@@ -77,6 +77,8 @@
         "semaphore": "cpp",
         "span": "cpp",
         "stop_token": "cpp",
-        "thread": "cpp"
+        "thread": "cpp",
+        "cinttypes": "cpp",
+        "filesystem": "cpp"
     }
 }
