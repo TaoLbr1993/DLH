@@ -120,6 +120,25 @@ class BFLabelHashEle {
 		
 		return (bf.estCard()+bf2.bf.estCard() -bft.estCard()) >= HASH_INT_LIM;
 	}
+
+	void bf_union(BFLabelHashEle & bf2) {
+		bf |= bf2.bf;
+	}
+
+	inline BFLabelHashEle& operator = (const BFLabelHashEle& bf2) {
+		if (this != &bf2) {
+			n_ele = bf2.n_ele;
+			maxmov = bf2.maxmov;
+			bf = bf2.bf;
+		}
+	}
+
+	inline BFLabelHashEle operator | (const BFLabelHashEle& a, const BFLabelHashEle& b) {
+		BFLabelHashEle result = a;
+		result.bf_union(b);
+		return result;
+	}
+
 };
 
 struct BPLabel {
@@ -158,6 +177,10 @@ public:
 	tint t;
 	bool *usd_bp;
 	BPLabel *label_bp;
+
+	// bloom filter parallel
+	int hash_maxcnt;
+	BFLabelHashEle * query_BF_list;
 
 	void init_query();
 
@@ -500,6 +523,7 @@ void DisOracle::const_hash() {
 		}
 	}
 	std::cout << "size:"<< maxcnt << std::endl;
+	hash_maxcnt = maxcnt;
 	for (int i=0; i<n; i++) hashes[i] = new BFLabelHashEle[MAXDIS-POS_ENHASH+1];
 	for (int i=0; i<n; i++) {
 		for (int j=POS_ENHASH; j<=MAXDIS; j++) {
@@ -1330,6 +1354,22 @@ void DisOracle::init_query_node(int q) {
 		int d = label[q][i]&MASK;
 		dis[w] = d;
 	}
+	// bloom filter pre compute
+	query_BF_list = new BFLabelHashEle[MAXDIS+1];
+	int setr = std::min(POS_ENHASH-1, MAXDIS);
+
+	for (int i=0; i<=setr; i++) {
+		int lr = i==0?0:label[q][i-1];
+		query_BF_list[i] = BFLabelHashEle(label[q], lr, label[q][i], hash_maxcnt, MAXMOV);
+		if (i>0) query_BF_list[i].bf_union(query_BF_list[i-1]);
+	}
+
+	if (POS_ENHASH<=MAXDIS) {
+		for (int i=POS_ENHASH; i<=MAXDIS; i++) {
+			query_BF_list[i] = query_BF_list[i-1] | hashes[q][i-POS_ENHASH];
+		}
+	}
+
 }
 
 bool DisOracle::query_by_nid_es(int u, int v, int search_k) {
