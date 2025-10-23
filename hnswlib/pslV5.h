@@ -39,7 +39,7 @@ using namespace std;
 
 // hash related - KMV
 #define N_HASHFUNC 16
-#define POS_ENHASH 3
+#define POS_ENHASH 4
 #define HASH_INT_LIM 1.0
 #define HASH_SEED 93
 
