@@ -256,7 +256,7 @@ int main() {
 
     build_end = std::chrono::high_resolution_clock::now();
     auto hnswpsl_build_time = std::chrono::duration_cast<std::chrono::milliseconds>(build_end - build_start).count();
-    std::cout << "HNSW+PSL构建完成，耗时: " << bf_build_time << " 毫秒" << std::endl;
+    std::cout << "HNSW+PSL构建完成，耗时: " << hnswpsl_build_time << " 毫秒" << std::endl;
     std::cout << "HNSW+PSL: HNSW index size: " << hnsw_psl_index->indexFileSize() << std::endl;
 
 

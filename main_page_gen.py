@@ -61,15 +61,26 @@ CONFIG: Dict = {
         "GHNSW": "#E24A33",
         "HNSW": "#348ABD",
         "ACORN": "#988ED5",
+        "NAVIX": "#777777",
     },
 
     # -------- Algorithm registry --------
     # key: short stable key used by ORDERS, legend, and generators
     # value: display & file options
     "ALGORITHMS": {
+        "GHNSW": {
+            "label": "GHNSW",
+            "filenames": ["GHNSW_stats.log"],
+            "color": "{PALETTE.GHNSW}",
+            "marker": "o",
+            "markersize": 7,
+            "line_width": 3,
+            "markeredgewidth": 1.2,
+            "visible": True,
+        },
         "HNSW": {
             "label": "HNSW + Filter",
-            "filenames": ["HNSW.log"],
+            "filenames": ["HNSW_stats.log"],
             "color": "{PALETTE.HNSW}",
             "marker": "s",
             "markersize": 7,
@@ -79,27 +90,37 @@ CONFIG: Dict = {
         },
         "ACORN": {
             "label": "ACORN",
-            "filenames": ["ACORN.log"],
+            "filenames": ["ACORN_stats.log"],
             "color": "{PALETTE.ACORN}",
             "marker": "^",
-            "markersize": 8,
+            "markersize": 7,
             "line_width": 3,
             "markeredgewidth": 1.0,
             "visible": True,
-        }
+        },
+        "NAVIX": {
+            "label": "NAVIX",
+            "filenames": ["NAVIX_stats.log"],
+            "color": "{PALETTE.NAVIX}",
+            "marker": "D",
+            "markersize": 7,
+            "line_width": 3,
+            "markeredgewidth": 1.0,
+            "visible": True,
+        },
     },
 
     # Which algorithms to draw per mode (and their ordering/z‑order precedence)
     "ORDERS": {
         "range": [
-            "HNSW", "ACORN",
+            "GHNSW", "HNSW", "ACORN", "NAVIX",
         ],
         "tag": [
-            "HNSW", "ACORN",
+            "GHNSW", "HNSW", "ACORN", "NAVIX",
         ],
         # Legend order (if you want a global legend); defaults to the union of above
         "legend": [
-            "HNSW", "ACORN",
+            "GHNSW", "HNSW", "ACORN", "NAVIX",
         ],
     },
 

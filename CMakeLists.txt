@@ -34,9 +34,6 @@ endif()
 if(HNSWLIB_EXAMPLES)
     set(CMAKE_CXX_STANDARD 11)
 
-    # libfaiss 安装路径
-    list(APPEND CMAKE_PREFIX_PATH "$ENV{HOME}/.local")
-
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
       SET( CMAKE_CXX_FLAGS  "-Ofast -std=c++11 -DHAVE_CXX0X -openmp -fpic -ftree-vectorize" )
       check_cxx_compiler_flag("-march=native" COMPILER_SUPPORT_NATIVE_FLAG)
@@ -56,22 +53,42 @@ if(HNSWLIB_EXAMPLES)
       SET( CMAKE_CXX_FLAGS  "/O2 -DHAVE_CXX0X /W1 /openmp /EHsc" )
     endif()
 
-    # hnsw-flex
-    # add_executable(ghnsw_example_filter examples/cpp/ghnsw_example_filter.cpp)
-    # target_link_libraries(ghnsw_example_filter hnswlib)
-    
-    # # add_executable(ghnsw_addm examples/cpp/ghnsw_addm.cpp)
-    # # target_link_libraries(ghnsw_addm hnswlib)
+    # 添加 ACORN
+    # ACORN 安装路径
+    set(ACORN_FAISS_DIR "$ENV{HOME}/.local")
+    # 使用 ACORN 的 Faiss（用 find_package，导入的目标名通常是 faiss 或 faiss::faiss）
+    find_package(faiss REQUIRED PATHS "${ACORN_FAISS_DIR}" NO_DEFAULT_PATH)
 
-    # add_executable(ghnsw_hnt examples/cpp/ghnsw_hopnbrtri.cpp)
-    # target_link_libraries(ghnsw_hnt hnswlib)
-
-    # add_executable(ghnsw_psl examples/cpp/ghnsw_psl.cpp)
-    # target_link_libraries(ghnsw_psl hnswlib)
-
-    find_package(faiss REQUIRED)
     add_executable(ghnsw_test examples/cpp/ghnsw_test.cpp)
     target_link_libraries(ghnsw_test hnswlib faiss)
+
+    # 添加 Navix
+    set(NAVIX_BASE_DIRS "$ENV{HOME}/faiss-navix")
+    add_library(navix STATIC IMPORTED)
+    set_target_properties(navix PROPERTIES
+    IMPORTED_LOCATION ${NAVIX_BASE_DIRS}/build/faiss/libfaiss.a
+    INTERFACE_INCLUDE_DIRECTORIES ${NAVIX_BASE_DIRS})
+
+    find_package(BLAS REQUIRED)
+    set(BLAS_LIB_TARGET BLAS::BLAS)
+
+    add_executable(navix_test examples/cpp/navix_test.cpp)
+    target_link_libraries(navix_test hnswlib navix ${BLAS_LIB_TARGET})
+
+
+    # 生成 groundtruth
+    add_executable(gen_groundtruth data/gen_groundtruth.cpp)
+    target_link_libraries(gen_groundtruth hnswlib)
+
+    # baseline
+
+    # hnsw
+    add_executable(baseline_hnsw data/baseline/baseline_hnsw.cpp)
+    target_link_libraries(baseline_hnsw hnswlib)
+
+    # navix
+    add_executable(baseline_navix data/baseline/baseline_navix.cpp)
+    target_link_libraries(baseline_navix hnswlib navix ${BLAS_LIB_TARGET})
 
     # # 仅对 g++ 构建的 ghnsw_psl 开启调试信息并关闭优化
     # if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")

@@ -71,6 +71,7 @@ namespace hnswlib {
                 delete[] end_points;
                 end_points = nullptr;
             }
+            edge_pairs.clear();
         }
 
         void genRelation(size_t* ids, size_t num_ids) {
@@ -86,9 +87,8 @@ namespace hnswlib {
             // 邻接表暂存一下
             std::vector<std::vector<size_t>> edges(num_ids);
 
-            // 生成随机种子并使用种子初始化随机数生成器
-            std::random_device rd;
-            std::default_random_engine rng(rd());
+            // 随机数生成器，固定种子以保证可复现
+            std::default_random_engine rng(42);
             // 使用均匀分布生成随机数
             std::uniform_real_distribution<float> distrib(0.0f, 1.0f);
 
@@ -164,6 +164,14 @@ namespace hnswlib {
             writeBinaryPOD(output, totalEdges);
             output.write((char*)end_points, sizeof(size_t) * totalEdges);
 
+            // 保存 edge_pairs 大小和内容
+            size_t edgePairsSize = edge_pairs.size();
+            writeBinaryPOD(output, edgePairsSize);
+            for (const auto& p : edge_pairs) {
+                writeBinaryPOD(output, p.first);
+                writeBinaryPOD(output, p.second);
+            }
+
             output.close();
         }
 
@@ -213,6 +221,18 @@ namespace hnswlib {
                 input.read(reinterpret_cast<char*>(end_points), sizeof(size_t) * totalEdges);
             } else {
                 end_points = nullptr;
+            }
+
+            // 读取 edge_pairs
+            size_t edgePairsSize = 0;
+            readBinaryPOD(input, edgePairsSize);
+            edge_pairs.clear();
+            edge_pairs.reserve(edgePairsSize);
+            for (size_t i = 0; i < edgePairsSize; ++i) {
+                int u, v;
+                readBinaryPOD(input, u);
+                readBinaryPOD(input, v);
+                edge_pairs.emplace_back(u, v);
             }
 
             input.close();

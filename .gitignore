@@ -15,4 +15,9 @@ figures/*
 logs
 logs/*
 
+questions.txt
+log.txt
+run.sh
 
+data
+data/*
