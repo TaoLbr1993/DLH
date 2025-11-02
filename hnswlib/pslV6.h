@@ -96,7 +96,7 @@ class BFLabelHashEle {
 
 	BFLabelHashEle(std::vector<unsigned int> & label, int start, int n_ele_, int max_size, unsigned int maxmov_): n_ele(n_ele_), maxmov(maxmov_) {
 		BloomFilter::bloom_parameters params;
-		params.projected_element_count = max_size;
+		params.projected_element_count = max_size/2;
 		params.random_seed = HASH_SEED;
 		params.false_positive_probability = 0.01;
 		params.compute_optimal_parameters();
@@ -176,6 +176,7 @@ public:
 	void see_hash();
 
 	void init_query_node(int q);
+
 };
 
 //======implementation========
@@ -1253,36 +1254,99 @@ int DisOracle::query_by_nid(int u, int v) {
 // 	return false;
 // }
 
-void DisOracle::init_query_node(int q) {
+// bool DisOracle::query_by_nid_esV5(int u, int v, int search_k) {
+// aligned with pslV5: hnsw + psl + bloom filter
+// 	++t;
+// 		if (t == MAXT) {
+// 			memset(last_t, 0, sizeof(tint)*n);
+// 			t=1;
+// 		}
+	
+// 	int ktmp = min(search_k, POS_ENHASH-1);
 
+// 	for (int ks = 0; ks <=ktmp; ks++) {
+		
+// 		int ru = pos[u][ks]; //(ks==search_k)?(int) label[u].size():pos[u][ks];
+// 		for (int i=0; i<ru; i++) {
+// 			int w = label[u][i] >> MAXMOV;
+// 			char d = label[u][i]&MASK;
+// 			last_t[w] = t; dis[w] = d;
+// 		}
+// 		int rks = std::max(0, std::min(ktmp, search_k-ks));
+// 		// std::cout << "ks:" << ks << " rks:" << rks << std::endl;
+// 		int lv = (rks==0)?0:pos[v][rks-1];
+// 		int rv = pos[v][rks]; //(rks==search_k)?(int) label[v].size():pos[v][rks];
+// 		for (int i=lv; i < rv; i++) {
+// 			int w = label[v][i]>>MAXMOV;
+// 			char d = label[v][i]&MASK;
+// 			if (last_t[w] == t && (char)(d+dis[w])<=search_k) return true;
+// 		}
+// 	}
+// 	// return false;
+
+// 	// int ktmp = min(search_k, POS_ENHASH);
+// 	// for (int ks = 1; ks<ktmp; ks++) {
+// 	// 	// std::cout << "ks" << ks << std::endl;
+// 	// 	int ls = min(search_k-ks, POS_ENHASH-1);
+// 	// 	unsigned lu = (unsigned)pos[u][ks], lv = (unsigned)pos[v][ls];
+// 	// 	for (int i=(unsigned) pos[u][ks-1], j=0; i<lu && j<lv; i++) {
+// 	// 		// std::cout << i << "," << j << std::endl;
+// 	// 		for (; j<lv && label[v][j]>>MAXMOV < label[u][i]>>MAXMOV; j++) ;
+// 	// 		if (j<lv && label[v][j]>>MAXMOV == label[u][i]>>MAXMOV) return true;
+// 	// 	}
+// 	// }
+
+// 	if (POS_ENHASH<=search_k) {
+// 		for (int i=POS_ENHASH; i<=search_k; i++) {
+// 			int rr = search_k-i;
+// 			if (rr>=0 && hashes[u][i-POS_ENHASH].isIntersect(label[v], 0, pos[v][0])) {
+// 				return true;
+// 			}
+// 			for (int j=1; j<=rr; j++) {
+// 				if (j<POS_ENHASH &&
+// 				hashes[u][i-POS_ENHASH].isIntersect(label[v], pos[v][j-1], pos[v][j]-pos[v][j-1])) return true;
+// 				else if (j>=POS_ENHASH && hashes[u][i-POS_ENHASH].isIntersect(hashes[v][j-POS_ENHASH])) return true;
+// 			}
+// 		}  
+
+		
+// 		for (int j=POS_ENHASH; j<=search_k; j++) {
+// 			int rr = min(search_k-j, POS_ENHASH-1);
+// 			if (rr>=0 && hashes[v][j-POS_ENHASH].isIntersect(label[u], 0, pos[u][0])) return true;
+// 			for (int i=1; i<=rr; i++) {
+// 				if (hashes[v][j-POS_ENHASH].isIntersect(label[u], pos[u][i-1], pos[u][i]-pos[u][i-1])) return true;
+// 			}
+// 		}
+// 	}
+// 	return false;
+// }
+
+// V6: hnsw + psl + bloom filter + labeling parallel
+
+void DisOracle::init_query_node(int q) {
+	q = nid[q];
+	memset(dis, 64, sizeof(char) * n);
+	int lq = (int) label[q].size();
+	for (int i=0; i<lq; i++) {
+		int w = label[q][i]>>MAXMOV;
+		int d = label[q][i]&MASK;
+		dis[w] = d;
+	}
 }
 
-
 bool DisOracle::query_by_nid_es(int u, int v, int search_k) {
-	++t;
-		if (t == MAXT) {
-			memset(last_t, 0, sizeof(tint)*n);
-			t=1;
-		}
-	
+
 	int ktmp = min(search_k, POS_ENHASH-1);
 
 	for (int ks = 0; ks <=ktmp; ks++) {
-		
-		int ru = pos[u][ks]; //(ks==search_k)?(int) label[u].size():pos[u][ks];
-		for (int i=0; i<ru; i++) {
-			int w = label[u][i] >> MAXMOV;
-			char d = label[u][i]&MASK;
-			last_t[w] = t; dis[w] = d;
-		}
 		int rks = std::max(0, std::min(ktmp, search_k-ks));
 		// std::cout << "ks:" << ks << " rks:" << rks << std::endl;
 		int lv = (rks==0)?0:pos[v][rks-1];
 		int rv = pos[v][rks]; //(rks==search_k)?(int) label[v].size():pos[v][rks];
 		for (int i=lv; i < rv; i++) {
 			int w = label[v][i]>>MAXMOV;
-			char d = label[v][i]&MASK;
-			if (last_t[w] == t && (char)(d+dis[w])<=search_k) return true;
+			int d = label[v][i]&MASK;
+			if ((char)(d+dis[w])<=search_k) return true;
 		}
 	}
 	// return false;
