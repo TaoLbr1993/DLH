@@ -19,19 +19,6 @@
 #include <faiss/IndexHNSW.h>
 #include "faiss/index_io.h"
 
-
-class PSLFilter : public hnswlib::BaseFilterFunctor {
-    public:
-    int src_id;
-    int qhop;
-    hnswlib::DisOracle * pslidx;
-    PSLFilter(int src_id_, int qhop_, hnswlib::DisOracle* psl_index_) : src_id(src_id_), qhop(qhop_), pslidx(psl_index_) {}
-
-    bool operator() (hnswlib::labeltype id) override {
-        return pslidx->query(src_id, id, qhop);
-    }
-};
-
 // 定义一个k跳邻居过滤器
 class KHopFilter : public hnswlib::BaseFilterFunctor {
 public:
@@ -111,18 +98,18 @@ void analyzeKHopDistribution(hnswlib::GraphRelationSampler& grs, int max_element
 int main() {
     // 数据集参数
     int dim = 128;               // 维度
-    int max_elements = 100000;   // 最大元素数
+    int max_elements = 200000;   // 最大元素数
     float prob = 0.0003;          // 建边概率
 
     // HNSW参数
     int M = 16;                 // 最大连接数
     int ef_construction = 200;
-    std::vector<size_t> efs = { 10, 20, 30, 50, 80, 100, 150, 200, 300, 400, 500, 600, 700, 800 };
+    std::vector<size_t> efs = { 10, 20, 30, 50, 80, 100, 150, 200, 300, 400, 500, 600, 700, 800};
     
     // 查询参数
     int k_query = 10;           // 查询时返回的邻居数
     int num_queries = 100;      // 测试查询次数
-    int k_hop = 4;              // k-hop参数
+    int k_hop = 3;              // k-hop参数
 
     // 初始化空间
     hnswlib::L2Space space(dim);
@@ -286,10 +273,13 @@ int main() {
     }
     oss_navix << "\n\n----------------------------------------\n";
 
-    std::ofstream fout_navix((log_dir + "/NAVIX.log").c_str(), std::ios::out | std::ios::trunc);
+    std::ofstream fout_navix((log_dir + "/NAVIX_stats.log").c_str(), std::ios::out | std::ios::trunc);
     fout_navix << oss_navix.str();
     fout_navix.close();
-    std::cout << "日志已写入: " << (log_dir + "/NAVIX.log") << std::endl;
+    std::cout << "日志已写入: " << (log_dir + "/NAVIX_stats.log") << std::endl;
+
+
+    analyzeKHopDistribution(grs, max_elements, 5); // 分析1到5跳的邻居分布
 
     return 0;
 }

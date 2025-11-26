@@ -58,24 +58,36 @@ CONFIG: Dict = {
     # -------- Palette (centralized) --------
     # You can tweak these once and reuse in ALGORITHMS
     "PALETTE": {
-        "GHNSW": "#E24A33",
+        "GHNSW-V5": "#E24A33",
+        "GHNSW-V6": "#D68C1D",
         "HNSW": "#348ABD",
         "ACORN": "#988ED5",
         "NAVIX": "#777777",
+        "Pre-Filtering": "#300AF2",
     },
 
     # -------- Algorithm registry --------
     # key: short stable key used by ORDERS, legend, and generators
     # value: display & file options
     "ALGORITHMS": {
-        "GHNSW": {
-            "label": "GHNSW",
-            "filenames": ["GHNSW_stats.log"],
-            "color": "{PALETTE.GHNSW}",
+        "GHNSW-V5": {
+            "label": "GHNSW-V5",
+            "filenames": ["GHNSW-V5_stats.log"],
+            "color": "{PALETTE.GHNSW-V5}",
             "marker": "o",
-            "markersize": 7,
-            "line_width": 3,
-            "markeredgewidth": 1.2,
+            "markersize": 3,
+            "line_width": 1,
+            "markeredgewidth": 1.0,
+            "visible": True,
+        },
+        "GHNSW-V6": {
+            "label": "GHNSW-V6",
+            "filenames": ["GHNSW-V6_stats.log"],
+            "color": "{PALETTE.GHNSW-V6}",
+            "marker": "^",
+            "markersize": 3,
+            "line_width": 1,
+            "markeredgewidth": 1.0,
             "visible": True,
         },
         "HNSW": {
@@ -83,9 +95,9 @@ CONFIG: Dict = {
             "filenames": ["HNSW_stats.log"],
             "color": "{PALETTE.HNSW}",
             "marker": "s",
-            "markersize": 7,
-            "line_width": 3,
-            "markeredgewidth": 1.2,
+            "markersize": 3,
+            "line_width": 1,
+            "markeredgewidth": 1.0,
             "visible": True,
         },
         "ACORN": {
@@ -93,8 +105,8 @@ CONFIG: Dict = {
             "filenames": ["ACORN_stats.log"],
             "color": "{PALETTE.ACORN}",
             "marker": "^",
-            "markersize": 7,
-            "line_width": 3,
+            "markersize": 3,
+            "line_width": 1,
             "markeredgewidth": 1.0,
             "visible": True,
         },
@@ -103,8 +115,18 @@ CONFIG: Dict = {
             "filenames": ["NAVIX_stats.log"],
             "color": "{PALETTE.NAVIX}",
             "marker": "D",
-            "markersize": 7,
-            "line_width": 3,
+            "markersize": 3,
+            "line_width": 1,
+            "markeredgewidth": 1.0,
+            "visible": True,
+        },
+        "Pre-Filtering": {
+            "label": "Pre-Filtering",
+            "filenames": ["BF_stats.log"],
+            "color": "{PALETTE.Pre-Filtering}",
+            "marker": "x",
+            "markersize": 3,
+            "line_width": 1,
             "markeredgewidth": 1.0,
             "visible": True,
         },
@@ -113,14 +135,14 @@ CONFIG: Dict = {
     # Which algorithms to draw per mode (and their ordering/z‑order precedence)
     "ORDERS": {
         "range": [
-            "GHNSW", "HNSW", "ACORN", "NAVIX",
+            "GHNSW-V5", "GHNSW-V6", "HNSW", "ACORN", "NAVIX", "Pre-Filtering",
         ],
         "tag": [
-            "GHNSW", "HNSW", "ACORN", "NAVIX",
+            "GHNSW-V5", "GHNSW-V6", "HNSW", "ACORN", "NAVIX", "Pre-Filtering",
         ],
         # Legend order (if you want a global legend); defaults to the union of above
         "legend": [
-            "GHNSW", "HNSW", "ACORN", "NAVIX",
+            "GHNSW-V5", "GHNSW-V6", "HNSW", "ACORN", "NAVIX", "Pre-Filtering",
         ],
     },
 
@@ -129,11 +151,11 @@ CONFIG: Dict = {
         # dataset -> mode -> (y_min, y_max)
         "dataset_settings": {
             "RANDOM": {"range": (2, 2000),    "tag": (2, 2000 )},
-            "SIFT1M": {"range": (20, 9000),     "tag": (20, 9000)},
+            "Sift1M": {"range": (2, 4000),    "tag": (2, 4000)},
             "WIT":    {"range": (2, 2000 ),     "tag": (2, 2000 )},
             "YFCC":   {"range": (2, 4000 ),     "tag": (2, 4000 )},
         },
-        "x_range": (0.79, 1.01),
+        "x_range": (0.78, 1.02),
         "x_ticks": [0.8, 0.85, 0.9, 0.95, 1.0],
         "use_log_y": True,
         "ytick_multipliers": (1,),   # or (1, 2, 5)
@@ -149,7 +171,7 @@ CONFIG: Dict = {
             "columnspacing": 2.0,
             "outfile": "legend_ggplot.svg",
         },
-        "use_pareto": True,  # True to filter dominated points per line
+        "use_pareto": False,  # True to filter dominated points per line
     },
 }
 
@@ -262,7 +284,7 @@ def _load_lines_for_group(group_name: str, algo_keys: Iterable[str]):
             continue
         fpath = _resolve_file_for_algo(group_name, spec.get("filenames", []))
         raw_pairs = parse_search_times_file(fpath) if fpath else []
-        converted = [(r, 1_000_000.0 / t_us) for (r, t_us) in raw_pairs]
+        converted = [(r / 100.0, 1_000_000.0 / t_us) for (r, t_us) in raw_pairs]
         if use_pareto:
             converted = _pareto_front(converted)
         if not converted:
@@ -345,7 +367,8 @@ def gen_main_page(group_name: str, mode: str, *, y_min: float, y_max: float):
         zorders=zorders,
         colors=colors,
         markers=markers,
-        x_range=(80, 100),
+        x_range=CONFIG["PLOTS"].get("x_range", (0.78, 1.02)),
+        x_ticks=CONFIG["PLOTS"].get("x_ticks", [0.8, 0.85, 0.9, 0.95, 1.0]),
         y_range=(y_min, y_max),
         log_scale=CONFIG["PLOTS"].get("use_log_y", True),
         linestyle=[CONFIG["PLOTS"].get("line_style", "-") for _ in lines],
@@ -523,8 +546,18 @@ if __name__ == "__main__":
 
     # Example: single figures (kept for compatibility)
     groups = [
-        "RANDOM-d128-n50000",
-        "RANDOM-d128-n100000",
+        # "RANDOM-d128-n50000",
+        # "RANDOM-d128-n100000",
+        # "Sift1M-0.0003-20w",
+        # "Sift1M-0.0001-20w-4hop",
+        # "Sift1M-0.0003-20w-3hop",
+        # "Sift1M-0.00005-20w-4hop",
+        # "Sift1M-0.0002-20w-4hop",
+        # "Sift1M-0.0001-20w-4hop-2group",
+        # "Sift1M-0.00012-20w-4hop-2group",
+        # "Sift1M-0.00015-20w-4hop-2group",
+        "Sift1M-0.00018-20w-4hop-2group",
+        "Sift1M-0.0002-20w-4hop-2group",
     ]
     for g in groups:
         mode = "range" if "-range-" in g else "tag"

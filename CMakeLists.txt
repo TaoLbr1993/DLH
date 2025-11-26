@@ -59,8 +59,10 @@ if(HNSWLIB_EXAMPLES)
     # 使用 ACORN 的 Faiss（用 find_package，导入的目标名通常是 faiss 或 faiss::faiss）
     find_package(faiss REQUIRED PATHS "${ACORN_FAISS_DIR}" NO_DEFAULT_PATH)
 
-    add_executable(ghnsw_test examples/cpp/ghnsw_test.cpp)
-    target_link_libraries(ghnsw_test hnswlib faiss)
+    # add_executable(ghnsw_test examples/cpp/ghnsw_test.cpp)
+    # target_link_libraries(ghnsw_test hnswlib faiss)
+    add_executable(acorn_test examples/cpp/acorn_test.cpp)
+    target_link_libraries(acorn_test hnswlib faiss)
 
     # 添加 Navix
     set(NAVIX_BASE_DIRS "$ENV{HOME}/faiss-navix")
@@ -89,6 +91,27 @@ if(HNSWLIB_EXAMPLES)
     # navix
     add_executable(baseline_navix data/baseline/baseline_navix.cpp)
     target_link_libraries(baseline_navix hnswlib navix ${BLAS_LIB_TARGET})
+
+    # acorn
+    add_executable(baseline_acorn data/baseline/baseline_acorn.cpp)
+    target_link_libraries(baseline_acorn hnswlib faiss)
+
+    # ghnsw v5
+    add_executable(baseline_ghnsw_v5 data/baseline/baseline_ghnsw_v5.cpp)
+    target_link_libraries(baseline_ghnsw_v5 hnswlib)
+
+    # ghnsw v6
+    add_executable(baseline_ghnsw_v6 data/baseline/baseline_ghnsw_v6.cpp)
+    target_link_libraries(baseline_ghnsw_v6 hnswlib)
+
+    # bf
+    add_executable(baseline_bf data/baseline/baseline_bf.cpp)
+    target_link_libraries(baseline_bf hnswlib)
+
+
+    # ghnsw_psl
+    add_executable(ghnsw_psl examples/cpp/ghnsw_psl.cpp)
+    target_link_libraries(ghnsw_psl hnswlib)
 
     # # 仅对 g++ 构建的 ghnsw_psl 开启调试信息并关闭优化
     # if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")

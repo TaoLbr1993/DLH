@@ -49,7 +49,7 @@ typedef long long lint;
 
 using namespace BloomFilter;
 
-namespace hnswlib{
+// namespace hnswlib{
 class SV {
 public:
 	SV();
@@ -91,14 +91,18 @@ class BFLabelHashEle {
 	
 	unsigned int maxmov;
 	BloomFilter::bloom_filter bf;
+	static constexpr double false_positive_probability = 0.05;
+	// static constexpr double projected_element_divisor = 1.0;
 
 	BFLabelHashEle(): n_ele(0){};
 
 	BFLabelHashEle(std::vector<unsigned int> & label, int start, int n_ele_, int max_size, unsigned int maxmov_): n_ele(n_ele_), maxmov(maxmov_) {
 		BloomFilter::bloom_parameters params;
-		params.projected_element_count = max_size/2;
+		// params.projected_element_count = static_cast<unsigned long long>(max_size / projected_element_divisor);
+		params.projected_element_count = max_size;
 		params.random_seed = HASH_SEED;
-		params.false_positive_probability = 0.01;
+		// params.false_positive_probability = 0.01;
+		params.false_positive_probability = false_positive_probability;
 		params.compute_optimal_parameters();
 		bf = BloomFilter::bloom_filter(params);
 		// std::cout << "nele:" << n_ele_ << "maxsize" << max_size<< std::endl;
@@ -916,11 +920,12 @@ DisOracle::DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool co
 	const_hash();
 
 	if (POS_ENHASH <= MAXDIS) {
-		for (int i=0; i<MAXDIS-POS_ENHASH+1; i++) {
-			int hashsize = hashes[0][i].bf.memSize() + 4;
-			std::cout << "hashsize" << hashsize << std::endl;
-			tt += hashsize * n;
-		}
+		for (int i = 0; i < MAXDIS - POS_ENHASH + 1; i++) {
+			// ull防止溢出
+            unsigned long long hashsize = hashes[0][i].bf.memSize() + 4ULL;
+			std::cout << "hash size for dis " << (i + POS_ENHASH) << ": " << hashsize << " bytes" << std::endl;
+            tt += (long long)(hashsize * (unsigned long long)n);
+        }
 	}
 
 	printf( "Index size=%0.3lfMB, Max label size=%lld, Avg label size=%0.3lf\n",
@@ -1500,6 +1505,7 @@ int DisOracle::query(int u, int v) {
 
 bool DisOracle::query(int u, int v, int search_k) {
 	if( u == v ) return 0;
+	// if (u == v) return true;
 	int type = 0;
 	u = nid[u]; v = nid[v];
 	if(u < 0) {u = -u-1; type = 1;} else if(u >= MAXN) {u = u-MAXN; type = 2;}
@@ -1519,5 +1525,5 @@ DisOracle::~DisOracle() {
 	if( label_bp ) delete[] label_bp; if( usd_bp ) delete[] usd_bp;
 }
 
-}
+// }
 #endif /* DIS_H_ */

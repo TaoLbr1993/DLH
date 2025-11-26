@@ -1,4 +1,5 @@
 #include "../../hnswlib/hnswlib.h"
+#include "../../hnswlib/pslV6.h"
 #include <chrono>
 #include <random>
 #include <iostream>
@@ -11,8 +12,8 @@ class PSLFilter : public hnswlib::BaseFilterFunctor {
     public:
     int src_id;
     int qhop;
-    hnswlib::DisOracle * pslidx;
-    PSLFilter(int src_id_, int qhop_, hnswlib::DisOracle* psl_index_) : src_id(src_id_), qhop(qhop_), pslidx(psl_index_) {}
+    DisOracle * pslidx;
+    PSLFilter(int src_id_, int qhop_, DisOracle* psl_index_) : src_id(src_id_), qhop(qhop_), pslidx(psl_index_) {}
 
     bool operator() (hnswlib::labeltype id) override {
         return pslidx->query(src_id, id, qhop);
@@ -178,17 +179,17 @@ void analyzeKHopDistribution(hnswlib::GraphRelationSampler& grs, int max_element
 
 int main() {
     int dim = 128;               // 维度
-    int max_elements = 50000;   // 最大元素数
-    int M = 80;                 // 最大连接数
+    int max_elements = 100000;   // 最大元素数
+    int M = 16;                 // 最大连接数
 
-    int nbrM = 4;
+    // int nbrM = 4;
 
     int ef_construction = 200;  
-    int k_query = 50;           // 查询时返回的邻居数
+    int k_query = 10;           // 查询时返回的邻居数
     int num_queries = 100;      // 测试查询次数
 
     int k_hop = 4 ;              // k-hop参数
-    float prob = 0.0003;          // 建边概率
+    float prob = 0.0002;          // 建边概率
 
     // 定义跳数划分，各部分之和等于k_hop
     // std::vector<int> hop_partitions = {1,1,1,1};
@@ -248,7 +249,7 @@ int main() {
     for (int i = 0; i < max_elements; i++) {
         hnsw_psl_index->addPoint(data + i * dim, i);
     }
-    hnswlib::DisOracle psl_index(grs.edge_pairs, k_hop, false);
+    DisOracle psl_index(grs.edge_pairs, k_hop, false);
     psl_index.see_labels();
 
     // psl_index.create_ord(grs.edge_pairs);
@@ -274,6 +275,10 @@ int main() {
     double total_time_ghnsw = 0.0;      // 单层图索引的总查询时间
     double total_time_hnswgdist = 0.0;
     double total_time_hnswpsl = 0.0;
+
+
+    normal_index->setEf(200);
+
 
     // 随机选择查询点进行测试
     std::cout << "\n开始评估性能..." << std::endl;

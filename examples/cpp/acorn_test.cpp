@@ -18,18 +18,6 @@
 #include <faiss/IndexACORN.h>
 
 
-class PSLFilter : public hnswlib::BaseFilterFunctor {
-    public:
-    int src_id;
-    int qhop;
-    hnswlib::DisOracle * pslidx;
-    PSLFilter(int src_id_, int qhop_, hnswlib::DisOracle* psl_index_) : src_id(src_id_), qhop(qhop_), pslidx(psl_index_) {}
-
-    bool operator() (hnswlib::labeltype id) override {
-        return pslidx->query(src_id, id, qhop);
-    }
-};
-
 // 定义一个k跳邻居过滤器
 class KHopFilter : public hnswlib::BaseFilterFunctor {
 public:
@@ -109,7 +97,7 @@ int main() {
     // 数据集参数
     int dim = 128;               // 维度
     int max_elements = 200000;   // 最大元素数
-    float prob = 0.0001;          // 建边概率
+    float prob = 0.0003;          // 建边概率
 
     // HNSW参数
     int M = 16;                 // 最大连接数
@@ -119,7 +107,7 @@ int main() {
     // 查询参数
     int k_query = 10;           // 查询时返回的邻居数
     int num_queries = 100;      // 测试查询次数
-    int k_hop = 4;              // k-hop参数
+    int k_hop = 3;              // k-hop参数
 
     // 初始化空间
     hnswlib::L2Space space(dim);
@@ -188,178 +176,13 @@ int main() {
         std::cerr << "创建目录失败: " << log_dir << std::endl;
         return 1;
     }
-    
-
-    // ===================== HNSW 评测 =====================
-
-    // 将数据添加到HNSW索引中
-    std::cout << "正在构建HNSW索引..." << std::endl;
-    build_start = std::chrono::high_resolution_clock::now();
-    hnswlib::HierarchicalNSW<float>* normal_index = new hnswlib::HierarchicalNSW<float>(&space, max_elements, M, ef_construction);
-    for (int i = 0; i < max_elements; i++) {
-        normal_index->addPoint(data + i * dim, i);
-    }
-    build_end = std::chrono::high_resolution_clock::now();
-    auto hnsw_build_time = std::chrono::duration_cast<std::chrono::milliseconds>(build_end - build_start).count();
-    std::cout << "HNSW索引构建完成，耗时: " << hnsw_build_time << " 毫秒" << std::endl;
-
-    // 为每个 ef 统计 (recall, us)
-    std::vector<std::pair<double,int>> recall_us_pairs; // {recall_percent, avg_us}
-
-    for (size_t ef : efs) {
-        normal_index->setEf(ef);
-
-        long long sum_us = 0;
-        double sum_recall = 0.0;
-
-        for (int qi = 0; qi < num_queries; ++qi) {
-            int query_idx = query_ids[qi];
-            float* query_vector = data + query_idx * dim;
-            hnswlib::labeltype query_label = query_idx;
-
-            // 计时 + 近似检索（带过滤）
-            auto t1 = std::chrono::high_resolution_clock::now();
-            // 过滤器（k-hop）
-            std::unordered_set<hnswlib::labeltype> khop_nbrs = grs.getKHopNodes(query_label, k_hop);
-            KHopFilter hnswbf_filter(khop_nbrs);
-            auto approx_results_filtered = normal_index->searchKnn(query_vector, k_query, &hnswbf_filter);
-            auto t2 = std::chrono::high_resolution_clock::now();
-            auto approx_time_us = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
-            sum_us += approx_time_us;
-
-            // 结果必须在 k-hop 内
-            verifyResults(approx_results_filtered, khop_nbrs, query_label, "带过滤器HNSW");
-
-            // 计算召回率（与真值 Top-k 交集）
-            int matches = 0;
-            auto approx_copy = approx_results_filtered;
-            while (!approx_copy.empty()) {
-                if (exact_label_sets[qi].count(approx_copy.top().second) > 0) {
-                    matches++;
-                }
-                approx_copy.pop();
-            }
-            sum_recall += static_cast<double>(matches) / static_cast<double>(k_query);
-        }
-
-        double avg_recall = sum_recall / static_cast<double>(num_queries);
-        int avg_us = static_cast<int>(std::llround(static_cast<double>(sum_us) / num_queries)); // 平均微秒，四舍五入
-        recall_us_pairs.emplace_back(avg_recall * 100.0, avg_us);
-        std::cout << "ef=" << ef << "  avg_recall=" << std::fixed << std::setprecision(3)
-                  << (avg_recall * 100.0) << "%  avg_time=" << avg_us << " us\n";
-    }
-
-    std::ostringstream oss;
-    oss << "Benchmark Report\n";
-    oss << "Search Times (ns):\n";
-    oss << "Index \\ ef |";
-    for (size_t ef : efs) oss << " ef=" << ef;
-    oss << "\n";
-
-    // 仅第一条含 (recall, us) 的行会被 parse_search_times 解析
-    oss << "HNSW: ";
-    oss << std::fixed << std::setprecision(1);
-    for (size_t i = 0; i < recall_us_pairs.size(); ++i) {
-        oss << "(" << recall_us_pairs[i].first << ", " << recall_us_pairs[i].second << " us)";
-        if (i + 1 < recall_us_pairs.size()) oss << " ";
-    }
-    oss << "\n\n----------------------------------------\n";
-
-    std::ofstream fout((log_dir + "/HNSW.log").c_str(), std::ios::out | std::ios::trunc);
-    fout << oss.str();
-    fout.close();
-    std::cout << "日志已写入: " << (log_dir + "/HNSW.log") << std::endl;
-
-    // =================== HNSW 评测结束 ===================
-
-    // ==================== HNSW+PSL 评测 ====================
-    std::cout << "正在构建HNSW+PSL..." << std::endl;
-    build_start = std::chrono::high_resolution_clock::now();
-    hnswlib::HierarchicalNSW<float>* hnsw_psl_index = new hnswlib::HierarchicalNSW<float>(&space, max_elements, M, ef_construction);
-    for (int i = 0; i < max_elements; i++) {
-        hnsw_psl_index->addPoint(data + i * dim, i);
-    }
-    hnswlib::DisOracle psl_index(grs.edge_pairs, k_hop, false);
-    psl_index.see_labels();
-    build_end = std::chrono::high_resolution_clock::now();
-    auto hnswpsl_build_time = std::chrono::duration_cast<std::chrono::milliseconds>(build_end - build_start).count();
-    std::cout << "HNSW+PSL构建完成，耗时: " << hnswpsl_build_time << " 毫秒" << std::endl;
-    std::cout << "HNSW+PSL: HNSW index size: " << hnsw_psl_index->indexFileSize() << std::endl;
-
-
-    std::vector<std::pair<double,int>> ghnsw_recall_us_pairs;
-
-    for (size_t ef : efs) {
-        normal_index->setEf(ef);
-
-        long long sum_us = 0;
-        double sum_recall = 0.0;
-
-        for (int qi = 0; qi < num_queries; ++qi) {
-            int query_idx = query_ids[qi];
-            float* query_vector = data + query_idx * dim;
-            hnswlib::labeltype query_label = query_idx;
-
-            // PSL 过滤器
-            PSLFilter hnswpsl_filter(query_label, k_hop, &psl_index);
-
-            auto t1 = std::chrono::high_resolution_clock::now();
-            auto approx_results_psl = normal_index->searchKnn(query_vector, k_query, &hnswpsl_filter);
-            auto t2 = std::chrono::high_resolution_clock::now();
-            auto approx_time_us = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
-            sum_us += approx_time_us;
-
-            // // 校验结果均在 k-hop 内
-            // std::unordered_set<hnswlib::labeltype> khop_nbrs = grs.getKHopNodes(query_label, k_hop);
-            // verifyResults(approx_results_psl, khop_nbrs, query_label, "HNSW+PSL");
-
-            // 召回率：与对应真值集合求交
-            int matches = 0;
-            auto approx_copy = approx_results_psl;
-            while (!approx_copy.empty()) {
-                if (exact_label_sets[qi].count(approx_copy.top().second) > 0) {
-                    matches++;
-                }
-                approx_copy.pop();
-            }
-            sum_recall += static_cast<double>(matches) / static_cast<double>(k_query);
-        }
-
-        double avg_recall = sum_recall / static_cast<double>(num_queries);
-        int avg_us = static_cast<int>(std::llround(static_cast<double>(sum_us) / num_queries));
-        ghnsw_recall_us_pairs.emplace_back(avg_recall * 100.0, avg_us);
-        std::cout << "[GHNSW] ef=" << ef << "  avg_recall=" << std::fixed << std::setprecision(3)
-                  << (avg_recall * 100.0) << "%  avg_time=" << avg_us << " us\n";
-    }
-
-    // 写 GHNSW 日志（供 parse_search_times 使用）
-    std::ostringstream oss_ghnsw;
-    oss_ghnsw << "Benchmark Report\n";
-    oss_ghnsw << "Search Times (ns):\n";
-    oss_ghnsw << "Index \\ ef |";
-    for (size_t ef : efs) oss_ghnsw << " ef=" << ef;
-    oss_ghnsw << "\n";
-
-    oss_ghnsw << "GHNSW: ";
-    oss_ghnsw << std::fixed << std::setprecision(1);
-    for (size_t i = 0; i < ghnsw_recall_us_pairs.size(); ++i) {
-        oss_ghnsw << "(" << ghnsw_recall_us_pairs[i].first << ", " << ghnsw_recall_us_pairs[i].second << " us)";
-        if (i + 1 < ghnsw_recall_us_pairs.size()) oss_ghnsw << " ";
-    }
-    oss_ghnsw << "\n\n----------------------------------------\n";
-
-    std::ofstream fout_ghnsw((log_dir + "/GHNSW.log").c_str(), std::ios::out | std::ios::trunc);
-    fout_ghnsw << oss_ghnsw.str();
-    fout_ghnsw.close();
-    std::cout << "日志已写入: " << (log_dir + "/GHNSW.log") << std::endl;
-    // ================== HNSW+PSL 评测结束 ===================
 
     // ==================== ACORN 评测 ====================
 
     // ACORN 参数
-    int acorn_M = 64;
-    int acorn_gamma = 1;
-    int acorn_M_beta = 128;
+    int acorn_M = 32;
+    int acorn_gamma = 2;
+    int acorn_M_beta = 64;
     std::cout << "\n正在构建ACORN索引..." << std::endl;
     auto acorn_build_start = std::chrono::high_resolution_clock::now();
 
@@ -413,17 +236,6 @@ int main() {
             auto acorn_time_us = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
             acorn_sum_us += acorn_time_us;
 
-            // // 验证结果在 k-hop 内
-            // for (int r = 0; r < k_query; ++r) {
-            //     auto lid = acorn_labels[r];
-            //     if (lid >= 0) {
-            //         if (lid != query_label && khop_nbrs.count(static_cast<hnswlib::labeltype>(lid)) == 0) {
-            //             std::cerr << "Error: ACORN 结果 " << lid << " 不在查询点 " << query_label << " 的 k-hop 邻居内\n";
-            //             assert(false);
-            //         }
-            //     }
-            // }
-
             // 计算召回
             int matches = 0;
             for (int r = 0; r < k_query; ++r) {
@@ -458,10 +270,10 @@ int main() {
     }
     oss_acorn << "\n\n----------------------------------------\n";
 
-    std::ofstream fout_acorn((log_dir + "/ACORN.log").c_str(), std::ios::out | std::ios::trunc);
+    std::ofstream fout_acorn((log_dir + "/ACORN_stats.log").c_str(), std::ios::out | std::ios::trunc);
     fout_acorn << oss_acorn.str();
     fout_acorn.close();
-    std::cout << "日志已写入: " << (log_dir + "/ACORN.log") << std::endl;
+    std::cout << "日志已写入: " << (log_dir + "/ACORN_stats.log") << std::endl;
 
     // ==================== ACORN 评测结束 ====================
 
