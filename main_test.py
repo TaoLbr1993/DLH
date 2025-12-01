@@ -34,15 +34,21 @@ datasets = [
     #     "acorn_gamma": "3",
     # },
     {
-        "dataset_name": "Sift1M-0.00018-20w-4hop-2group",
-        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.00018-20w-4hop-2group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.00018-20w-4hop-2group",
-        "acorn_gamma": "2",
+        "dataset_name": "Sift1M-0.0004-20w-4hop-4group",
+        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.0004-20w-4hop-4group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.0004-20w-4hop-4group",
+        "acorn_gamma": "1",
     },
     {
-        "dataset_name": "Sift1M-0.0002-20w-4hop-2group",
-        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.0002-20w-4hop-2group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.0002-20w-4hop-2group",
+        "dataset_name": "Sift1M-0.00036-20w-4hop-4group",
+        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.00036-20w-4hop-4group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.00036-20w-4hop-4group",
+        "acorn_gamma": "1",
+    },
+    {
+        "dataset_name": "Sift1M-0.0003-20w-4hop-4group",
+        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.0003-20w-4hop-4group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.0003-20w-4hop-4group",
         "acorn_gamma": "1",
     },
 ]
@@ -53,8 +59,8 @@ datasets = [
 #    - ef_list_idx: 使用的 ef_list 索引
 #    - extra_argv: (可选) 额外的命令行参数
 baselines_config = [
-    {"name": "GHNSW-V6", "exe_name": "baseline_ghnsw_v6", "ef_list_idx": 0},
-    {"name": "GHNSW-V5", "exe_name": "baseline_ghnsw_v5", "ef_list_idx": 0},
+    {"name": "GHNSW-V6", "exe_name": "baseline_ghnsw_v6", "ef_list_idx": 0, "extra_argv": ["--bf-fpp", "0.01"]},
+    {"name": "GHNSW-V5", "exe_name": "baseline_ghnsw_v5", "ef_list_idx": 0, "extra_argv": ["--bf-fpp", "0.01"]},
     {"name": "HNSW", "exe_name": "baseline_hnsw", "ef_list_idx": 0},
     {"name": "ACORN", "exe_name": "baseline_acorn", "ef_list_idx": 1},
     {"name": "NAVIX", "exe_name": "baseline_navix", "ef_list_idx": 1},

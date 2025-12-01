@@ -91,8 +91,8 @@ class BFLabelHashEle {
 	
 	unsigned int maxmov;
 	BloomFilter::bloom_filter bf;
-	static constexpr double false_positive_probability = 0.05;
-	// static constexpr double projected_element_divisor = 1.0;
+	
+	static double false_positive_probability;
 
 	BFLabelHashEle(): n_ele(0){};
 

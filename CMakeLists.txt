@@ -109,9 +109,9 @@ if(HNSWLIB_EXAMPLES)
     target_link_libraries(baseline_bf hnswlib)
 
 
-    # ghnsw_psl
-    add_executable(ghnsw_psl examples/cpp/ghnsw_psl.cpp)
-    target_link_libraries(ghnsw_psl hnswlib)
+    # # ghnsw_psl
+    # add_executable(ghnsw_psl examples/cpp/ghnsw_psl.cpp)
+    # target_link_libraries(ghnsw_psl hnswlib)
 
     # # 仅对 g++ 构建的 ghnsw_psl 开启调试信息并关闭优化
     # if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
