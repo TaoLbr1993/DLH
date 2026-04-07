@@ -27,6 +27,7 @@
 #include <limits>
 #include <string>
 #include <vector>
+#include <cstdint>
 
 namespace BloomFilter {
 
@@ -334,6 +335,41 @@ public:
    inline bool contains(const char* data, const std::size_t& length) const
    {
       return contains(reinterpret_cast<const unsigned char*>(data),length);
+   }
+
+   // 预计算：把 key 在每个 salt 下对应的 (byte_index, mask) 计算出来。
+   template <typename T>
+   inline void precompute_indices(const T& t,
+                                    std::uint32_t* byte_index_out,
+                                    unsigned char* mask_out) const
+   {
+      const unsigned char* key_begin = reinterpret_cast<const unsigned char*>(&t);
+      const std::size_t length = static_cast<std::size_t>(sizeof(T));
+
+      std::size_t bit_index = 0;
+      std::size_t bit = 0;
+      const std::size_t salt_count = salt_.size();
+      for (std::size_t i = 0; i < salt_count; ++i)
+      {
+         compute_indices(hash_ap(key_begin, length, salt_[i]), bit_index, bit);
+         const std::size_t byte_index = bit_index / bits_per_char;
+         byte_index_out[i] = static_cast<std::uint32_t>(byte_index);
+         mask_out[i] = bit_mask[bit];
+      }
+   }
+
+   // 快速 contains：不再调用 compute_indices/hash_ap，而是直接使用外部预先算好的结果。
+   inline bool contains_fast(const std::uint32_t* byte_index,
+                              const unsigned char* mask,
+                              const std::size_t salt_count) const
+   {
+      // 要求 salt_count 与 salt_.size() 一致；调用方负责保证。
+      for (std::size_t i = 0; i < salt_count; ++i)
+      {
+         if ((bit_table_[byte_index[i]] & mask[i]) != mask[i])
+            return false;
+      }
+      return true;
    }
 
    template <typename InputIterator>

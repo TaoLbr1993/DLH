@@ -19,5 +19,5 @@ questions.txt
 log.txt
 run.sh
 
-data
-data/*
+.vscode
+.vscode/*

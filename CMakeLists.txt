@@ -61,8 +61,8 @@ if(HNSWLIB_EXAMPLES)
 
     # add_executable(ghnsw_test examples/cpp/ghnsw_test.cpp)
     # target_link_libraries(ghnsw_test hnswlib faiss)
-    add_executable(acorn_test examples/cpp/acorn_test.cpp)
-    target_link_libraries(acorn_test hnswlib faiss)
+    # add_executable(acorn_test examples/cpp/acorn_test.cpp)
+    # target_link_libraries(acorn_test hnswlib faiss)
 
     # 添加 Navix
     set(NAVIX_BASE_DIRS "$ENV{HOME}/faiss-navix")
@@ -74,8 +74,8 @@ if(HNSWLIB_EXAMPLES)
     find_package(BLAS REQUIRED)
     set(BLAS_LIB_TARGET BLAS::BLAS)
 
-    add_executable(navix_test examples/cpp/navix_test.cpp)
-    target_link_libraries(navix_test hnswlib navix ${BLAS_LIB_TARGET})
+    # add_executable(navix_test examples/cpp/navix_test.cpp)
+    # target_link_libraries(navix_test hnswlib navix ${BLAS_LIB_TARGET})
 
 
     # 生成 groundtruth
@@ -103,6 +103,14 @@ if(HNSWLIB_EXAMPLES)
     # ghnsw v6
     add_executable(baseline_ghnsw_v6 data/baseline/baseline_ghnsw_v6.cpp)
     target_link_libraries(baseline_ghnsw_v6 hnswlib)
+
+    # ghnsw v7
+    add_executable(baseline_ghnsw_v7 data/baseline/baseline_ghnsw_v7.cpp)
+    target_link_libraries(baseline_ghnsw_v7 hnswlib)
+
+    # ghnsw v3
+    add_executable(baseline_ghnsw_v3 data/baseline/baseline_ghnsw_v3.cpp)
+    target_link_libraries(baseline_ghnsw_v3 hnswlib)
 
     # bf
     add_executable(baseline_bf data/baseline/baseline_bf.cpp)

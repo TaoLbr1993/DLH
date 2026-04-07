@@ -4,66 +4,421 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
+import argparse
+from multiprocessing.pool import Pool  # 新增
 
 def ensure_dir(path: str):
     Path(path).mkdir(parents=True, exist_ok=True)
 
-ef_list = [
-    "1,2,4,8,10,15,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
-    "1,2,4,8,10,20,40,60,80,100,120,140,160,180,200,220,240,260,280,300"
+MAIN_SIFT = [
+    {
+        "dataset_name": "Sift1M-0.00025-1M-4hop-20group",
+        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.00025-1M-4hop-20group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.00025-1M-4hop-20group",
+        "acorn_gamma": "2",
+        "ef_lists": {
+            "GHNSW-V3": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,250,260,280,300",
+            "GHNSW-V7": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,250,260,280,300",
+            "GHNSW-V6": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,250,260,280,300",
+            "GHNSW-V5": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,250,260,280,300",
+            "NAVIX":    "4,6,8,10,12,14,16,18,20,30,40,50,60,80,100,120,140,160,180,200",
+            "HNSW":     "2,10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,160,200",
+            "ACORN":    "10,20,25,30,35,40,45,50,55,60,70,80,100,120,140,160,200,240,280,500,800,1000,1200,1300,1400,1500,1600",
+        },
+    },
+    {
+        "dataset_name": "Sift1M-0.00027-1M-4hop-20group",
+        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.00027-1M-4hop-20group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.00027-1M-4hop-20group",
+        "acorn_gamma": "2",
+        "ef_lists": {
+            "GHNSW-V3": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,250,260,280,300",
+            "GHNSW-V7": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,250,260,280,300",
+            "GHNSW-V6": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,250,260,280,300",
+            "GHNSW-V5": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,250,260,280,300",
+            "NAVIX":    "4,6,8,10,12,14,16,18,20,30,40,50,60,80,100,120,140,160,180,200",
+            "HNSW":     "2,10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,160,200",
+            "ACORN":    "10,20,25,30,35,40,45,50,55,60,70,80,100,120,140,160,200,240,280,500,800,1000,1200,1300,1400,1500,1600",
+        },
+    },
+    {
+        "dataset_name": "Sift1M-0.0003-1M-4hop-20group",
+        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.0003-1M-4hop-20group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.0003-1M-4hop-20group",
+        "acorn_gamma": "1",
+        "ef_lists": {
+            "GHNSW-V3": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,250,260,280,300",
+            "GHNSW-V7": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,250,260,280,300",
+            "GHNSW-V6": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,250,260,280,300",
+            "GHNSW-V5": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,250,260,280,300",
+            "NAVIX":    "4,6,8,10,12,14,16,18,20,30,40,50,60,80,100,120,140,160,180,200",
+            "HNSW":     "2,10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,160,200",
+            "ACORN":    "10,20,25,30,35,40,45,50,55,60,70,80,100,120,140,160,200,240,280,500,800,1000,1200,1300,1400,1500,1600",
+        },
+    },
 ]
 
-# 1. 数据集配置
-datasets = [
-    # {
-    #     "dataset_name": "Sift1M-0.0001-20w-4hop-2group",
-    #     "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.0001-20w-4hop-2group",
-    #     "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.0001-20w-4hop-2group",
-    #     "acorn_gamma": "10",
-    # },
-    # {
-    #     "dataset_name": "Sift1M-0.00012-20w-4hop-2group",
-    #     "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.00012-20w-4hop-2group",
-    #     "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.00012-20w-4hop-2group",
-    #     "acorn_gamma": "5",
-    # },
-    # {
-    #     "dataset_name": "Sift1M-0.00015-20w-4hop-2group",
-    #     "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.00015-20w-4hop-2group",
-    #     "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.00015-20w-4hop-2group",
-    #     "acorn_gamma": "3",
-    # },
+MAIN_GIST = [
     {
-        "dataset_name": "Sift1M-0.0004-20w-4hop-4group",
-        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.0004-20w-4hop-4group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.0004-20w-4hop-4group",
-        "acorn_gamma": "1",
+        "dataset_name": "Gist1M-0.00025-1M-4hop-20group",
+        "data_dir": "/home/jiangyuntao/test_data/Gist1M-0.00025-1M-4hop-20group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Gist1M-0.00025-1M-4hop-20group",
+        "acorn_gamma": "2",
+        "ef_lists": {
+            "GHNSW-V7": "30,35,40,45,50,60,80,100,120,140,160,180,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "GHNSW-V6": "30,35,40,45,50,60,80,100,120,140,160,180,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "GHNSW-V5": "30,35,40,45,50,60,80,100,120,140,160,180,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "NAVIX":    "30,40,50,60,80,100,120,140,160,180,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "HNSW":     "30,35,40,45,50,60,80,100,120,160,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "ACORN":    "200,400,600,800,1000,1100,1200,1300,1400,1500,1600,1700,1800,1900,2000,2100,2200,2300,2400,2500",
+        },
     },
     {
-        "dataset_name": "Sift1M-0.00036-20w-4hop-4group",
-        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.00036-20w-4hop-4group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.00036-20w-4hop-4group",
-        "acorn_gamma": "1",
+        "dataset_name": "Gist1M-0.00027-1M-4hop-20group",
+        "data_dir": "/home/jiangyuntao/test_data/Gist1M-0.00027-1M-4hop-20group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Gist1M-0.00027-1M-4hop-20group",
+        "acorn_gamma": "2",
+        "ef_lists": {
+            "GHNSW-V7": "30,35,40,45,50,60,80,100,120,140,160,180,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "GHNSW-V6": "30,35,40,45,50,60,80,100,120,140,160,180,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "GHNSW-V5": "30,35,40,45,50,60,80,100,120,140,160,180,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "NAVIX":    "30,40,50,60,80,100,120,140,160,180,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "HNSW":     "30,35,40,45,50,60,80,100,120,160,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "ACORN":    "200,400,600,800,1000,1100,1200,1300,1400,1500,1600,1700,1800,1900,2000,2100,2200,2300,2400,2500",
+        },
     },
     {
-        "dataset_name": "Sift1M-0.0003-20w-4hop-4group",
-        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.0003-20w-4hop-4group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.0003-20w-4hop-4group",
-        "acorn_gamma": "1",
+        "dataset_name": "Gist1M-0.0003-1M-4hop-20group",
+        "data_dir": "/home/jiangyuntao/test_data/Gist1M-0.0003-1M-4hop-20group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Gist1M-0.0003-1M-4hop-20group",
+        "acorn_gamma": "2",
+        "ef_lists": {
+            "GHNSW-V7": "30,35,40,45,50,60,80,100,120,140,160,180,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "GHNSW-V6": "30,35,40,45,50,60,80,100,120,140,160,180,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "GHNSW-V5": "30,35,40,45,50,60,80,100,120,140,160,180,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "NAVIX":    "50,60,80,100,120,140,160,180,200,300,400,500,600,700,800,900,1000,1100,1200,1300,1400,1500",
+            "HNSW":     "30,35,40,45,50,60,80,100,120,160,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "ACORN":    "200,400,600,800,1000,1100,1200,1300,1400,1500,1600,1700,1800,1900,2000,2100,2200,2300,2400,2500",
+        },
     },
 ]
 
-# 2. 基线算法配置
-#    - name: 算法名称
-#    - exe_name: 对应的可执行文件名
-#    - ef_list_idx: 使用的 ef_list 索引
-#    - extra_argv: (可选) 额外的命令行参数
+MAIN_DEEP = [
+    {
+        "dataset_name": "Deep10M-0.00025-1M-4hop-20group",
+        "data_dir": "/home/jiangyuntao/test_data/Deep10M-0.00025-1M-4hop-20group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Deep10M-0.00025-1M-4hop-20group",
+        "acorn_gamma": "2",
+        "ef_lists": {
+            "GHNSW-V7": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+            "GHNSW-V6": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+            "GHNSW-V5": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+            "NAVIX":    "4,6,8,10,12,14,16,18,20,30,40,50,60,80,100,120,140,160,180,200",
+            "HNSW":     "2,10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,160,200",
+            # "ACORN":    "10,20,25,30,35,40,45,50,55,60,70,80,100,120,140,160,200,240,280,500,800,1000,1200",
+            "ACORN":    "1300,1400,1500,1600",
+        },
+    },
+    {
+        "dataset_name": "Deep10M-0.00027-1M-4hop-20group",
+        "data_dir": "/home/jiangyuntao/test_data/Deep10M-0.00027-1M-4hop-20group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Deep10M-0.00027-1M-4hop-20group",
+        "acorn_gamma": "2",
+        "ef_lists": {
+            "GHNSW-V7": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+            "GHNSW-V6": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+            "GHNSW-V5": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+            "NAVIX":    "4,6,8,10,12,14,16,18,20,30,40,50,60,80,100,120,140,160,180,200",
+            "HNSW":     "2,10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,160,200",
+            # "ACORN":    "10,20,25,30,35,40,45,50,55,60,70,80,100,120,140,160,200,240,280,500,800,1000,1200",
+            "ACORN":    "1300,1400,1500,1600",
+        },
+    },
+    {
+        "dataset_name": "Deep10M-0.0003-1M-4hop-20group",
+        "data_dir": "/home/jiangyuntao/test_data/Deep10M-0.0003-1M-4hop-20group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Deep10M-0.0003-1M-4hop-20group",
+        "acorn_gamma": "2",
+        "ef_lists": {
+            "GHNSW-V7": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+            "GHNSW-V6": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+            "GHNSW-V5": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+            "NAVIX":    "4,6,8,10,12,14,16,18,20,30,40,50,60,80,100,120,140,160,180,200",
+            "HNSW":     "2,10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,160,200",
+            # "ACORN":    "10,20,25,30,35,40,45,50,55,60,70,80,100,120,140,160,200,240,280,500,800,1000,1200",
+            "ACORN":    "1300,1400,1500,1600",
+        },
+    },
+]
+
+MAIN_GLOVE = [
+    {
+        "dataset_name": "GloVe-0.00025-1M-4hop-20group",
+        "data_dir": "/home/jiangyuntao/test_data/GloVe-0.00025-1M-4hop-20group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/GloVe-0.00025-1M-4hop-20group",
+        "acorn_gamma": "2",
+        "ef_lists": {
+            "GHNSW-V7": "60,80,100,120,140,160,180,200,240,280,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "GHNSW-V6": "60,80,100,120,140,160,180,200,240,280,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "GHNSW-V5": "60,80,100,120,140,160,180,200,240,280,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "NAVIX":    "30,60,80,100,120,140,160,180,200,240,280,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000,1200,1500",
+            "HNSW":     "60,80,100,120,140,160,180,200,240,280,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "ACORN":    "1200,1300,1400,1500,1600,1700,1800,1900,2000,2100,2200,2300,2400,2500,2600,2700,2800,2900,3000",
+        },
+    },
+    {
+        "dataset_name": "GloVe-0.00027-1M-4hop-20group",
+        "data_dir": "/home/jiangyuntao/test_data/GloVe-0.00027-1M-4hop-20group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/GloVe-0.00027-1M-4hop-20group",
+        "acorn_gamma": "2",
+        "ef_lists": {
+            "GHNSW-V7": "60,80,100,120,140,160,180,200,240,280,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "GHNSW-V6": "60,80,100,120,140,160,180,200,240,280,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "GHNSW-V5": "60,80,100,120,140,160,180,200,240,280,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "NAVIX":    "30,60,80,100,120,140,160,180,200,240,280,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000,1200,1500",
+            "HNSW":     "60,80,100,120,140,160,180,200,240,280,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "ACORN":    "1200,1300,1400,1500,1600,1700,1800,1900,2000,2100,2200,2300,2400,2500,2600,2700,2800,2900,3000",
+        },
+    },
+    {
+        "dataset_name": "GloVe-0.0003-1M-4hop-20group",
+        "data_dir": "/home/jiangyuntao/test_data/GloVe-0.0003-1M-4hop-20group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/GloVe-0.0003-1M-4hop-20group",
+        "acorn_gamma": "2",
+        "ef_lists": {
+            "GHNSW-V7": "60,80,100,120,140,160,180,200,240,280,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "GHNSW-V6": "60,80,100,120,140,160,180,200,240,280,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "GHNSW-V5": "60,80,100,120,140,160,180,200,240,280,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "NAVIX":    "30,60,80,100,120,140,160,180,200,240,280,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000,1100,1200,1300,1400,1500",
+            "HNSW":     "60,80,100,120,140,160,180,200,240,280,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
+            "ACORN":    "1200,1300,1400,1500,1600,1700,1800,1900,2000,2100,2200,2300,2400,2500,2600,2700,2800,2900,3000",
+        },
+    },
+]
+
+MAIN_YFCC = [
+    {
+        "dataset_name": "YFCC10M-0.00025-1M-4hop-20group",
+        "data_dir": "/home/jiangyuntao/test_data/YFCC10M-0.00025-1M-4hop-20group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/YFCC10M-0.00025-1M-4hop-20group",
+        "acorn_gamma": "2",
+        "ef_lists": {
+            "GHNSW-V7": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+            "GHNSW-V6": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+            "GHNSW-V5": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+            "NAVIX":    "4,6,8,10,12,14,16,18,20,30,40,50,60,80,100,120,140,160,180,200",
+            "HNSW":     "2,10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,160,200",
+            "ACORN":    "10,20,25,30,35,40,45,50,55,60,70,80,100,120,140,160,200,240,280,500,800,1000,1200,1300,1400,1500,1600",
+        },
+    },
+    {
+        "dataset_name": "YFCC10M-0.00027-1M-4hop-20group",
+        "data_dir": "/home/jiangyuntao/test_data/YFCC10M-0.00027-1M-4hop-20group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/YFCC10M-0.00027-1M-4hop-20group",
+        "acorn_gamma": "2",
+        "ef_lists": {
+            "GHNSW-V7": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+            "GHNSW-V6": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+            "GHNSW-V5": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+            "NAVIX":    "4,6,8,10,12,14,16,18,20,30,40,50,60,80,100,120,140,160,180,200",
+            "HNSW":     "2,10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,160,200",
+            "ACORN":    "10,20,25,30,35,40,45,50,55,60,70,80,100,120,140,160,200,240,280,500,800,1000,1200,1300,1400,1500,1600",
+        },
+    },
+    {
+        "dataset_name": "YFCC10M-0.0003-1M-4hop-20group",
+        "data_dir": "/home/jiangyuntao/test_data/YFCC10M-0.0003-1M-4hop-20group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/YFCC10M-0.0003-1M-4hop-20group",
+        "acorn_gamma": "2",
+        "ef_lists": {
+            "GHNSW-V7": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+            "GHNSW-V6": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+            "GHNSW-V5": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+            "NAVIX":    "4,6,8,10,12,14,16,18,20,30,40,50,60,80,100,120,140,160,180,200",
+            "HNSW":     "2,10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,160,200",
+            "ACORN":    "10,20,25,30,35,40,45,50,55,60,70,80,100,120,140,160,200,240,280,500,800,1000,1200,1300,1400,1500,1600",
+            # "ACORN":    "1300,1400,1500,1600",
+        },
+    },
+]
+
+
+SCALA_DEEP = [
+    # {
+    #     "dataset_name": "Deep10M-0.00027-2M-4hop-40group",
+    #     "data_dir": "/home/jiangyuntao/test_data/Deep10M-0.00027-2M-4hop-40group",
+    #     "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Deep10M-0.00027-2M-4hop-40group",
+    #     "acorn_gamma": "2",
+    #     "ef_lists": {
+    #         "GHNSW-V7": "100,250",
+    #         "GHNSW-V6": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+    #         "GHNSW-V5": "100,250",
+    #         "NAVIX":    "4,6,8,10,12,14,16,18,20,30,40,50,60,80,100,120,140,160,180,200",
+    #         "HNSW":     "2,10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,160,200",
+    #         # "ACORN":    "10,20,25,30,35,40,45,50,55,60,70,80,100,120,140,160,200,240,280,500,800,1000,1200",
+    #         "ACORN":    "1300,1400,1500,1600",
+    #     },
+    # },
+    # {
+    #     "dataset_name": "Deep10M-0.00027-4M-4hop-80group",
+    #     "data_dir": "/home/jiangyuntao/test_data/Deep10M-0.00027-4M-4hop-80group",
+    #     "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Deep10M-0.00027-4M-4hop-80group",
+    #     "acorn_gamma": "2",
+    #     "ef_lists": {
+    #         "GHNSW-V7": "100,250",
+    #         "GHNSW-V6": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+    #         "GHNSW-V5": "100,250",
+    #         "NAVIX":    "4,6,8,10,12,14,16,18,20,30,40,50,60,80,100,120,140,160,180,200",
+    #         "HNSW":     "2,10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,160,200",
+    #         # "ACORN":    "10,20,25,30,35,40,45,50,55,60,70,80,100,120,140,160,200,240,280,500,800,1000,1200",
+    #         "ACORN":    "1300,1400,1500,1600",
+    #     },
+    # },
+    {
+        "dataset_name": "Deep10M-0.00027-6M-4hop-120group",
+        "data_dir": "/home/jiangyuntao/test_data/Deep10M-0.00027-6M-4hop-120group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Deep10M-0.00027-6M-4hop-120group",
+        "acorn_gamma": "2",
+        "ef_lists": {
+            "GHNSW-V7": "100,250",
+            "GHNSW-V6": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+            "GHNSW-V5": "100,250",
+            "NAVIX":    "4,6,8,10,12,14,16,18,20,30,40,50,60,80,100,120,140,160,180,200",
+            "HNSW":     "2,10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,160,200",
+            # "ACORN":    "10,20,25,30,35,40,45,50,55,60,70,80,100,120,140,160,200,240,280,500,800,1000,1200",
+            "ACORN":    "1300,1400,1500,1600",
+        },
+    },
+    # {
+    #     "dataset_name": "Deep10M-0.00027-8M-4hop-160group",
+    #     "data_dir": "/home/jiangyuntao/test_data/Deep10M-0.00027-8M-4hop-160group",
+    #     "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Deep10M-0.00027-8M-4hop-160group",
+    #     "acorn_gamma": "2",
+    #     "ef_lists": {
+    #         "GHNSW-V7": "100,250",
+    #         "GHNSW-V6": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+    #         "GHNSW-V5": "100,250",
+    #         "NAVIX":    "4,6,8,10,12,14,16,18,20,30,40,50,60,80,100,120,140,160,180,200",
+    #         "HNSW":     "2,10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,160,200",
+    #         # "ACORN":    "10,20,25,30,35,40,45,50,55,60,70,80,100,120,140,160,200,240,280,500,800,1000,1200",
+    #         "ACORN":    "1300,1400,1500,1600",
+    #     },
+    # },
+    # {
+    #     "dataset_name": "Deep10M-0.00027-10M-4hop-200group",
+    #     "data_dir": "/home/jiangyuntao/test_data/Deep10M-0.00027-10M-4hop-200group",
+    #     "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Deep10M-0.00027-10M-4hop-200group",
+    #     "acorn_gamma": "2",
+    #     "ef_lists": {
+    #         "GHNSW-V7": "100,250",
+    #         "GHNSW-V6": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+    #         "GHNSW-V5": "100,250",
+    #         "NAVIX":    "4,6,8,10,12,14,16,18,20,30,40,50,60,80,100,120,140,160,180,200",
+    #         "HNSW":     "2,10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,160,200",
+    #         # "ACORN":    "10,20,25,30,35,40,45,50,55,60,70,80,100,120,140,160,200,240,280,500,800,1000,1200",
+    #         "ACORN":    "1300,1400,1500,1600",
+    #     },
+    # },
+]
+
+PARAM_FPP_SIFT = [
+    {
+        "dataset_name": "Sift1M-0.00027-1M-4hop-20group-fpp0.005",
+        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.00027-1M-4hop-20group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.00027-1M-4hop-20group-fpp0.005",
+        "acorn_gamma": "2",
+        "ef_lists": {
+            "GHNSW-V3": "100,250",
+            "GHNSW-V7": "100,250",
+            "GHNSW-V6": "100,250",
+            "GHNSW-V5": "100,250",
+            "NAVIX":    "4,6,8,10,12,14,16,18,20,30,40,50,60,80,100,120,140,160,180,200",
+            "HNSW":     "2,10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,160,200",
+            # "ACORN":    "10,20,25,30,35,40,45,50,55,60,70,80,100,120,140,160,200,240,280,500,800",
+            "ACORN":    "850,900,950,1000,1100,1200,1300,1400,1500,1600",
+        },
+    }
+]
+
+
+PARAM_KHOP_SIFT = [
+    {
+        "dataset_name": "Sift1M-0.00027-1M-3hop-20group",
+        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.00027-1M-3hop-20group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.00027-1M-3hop-20group",
+        "acorn_gamma": "2",
+        "ef_lists": {
+            "GHNSW-V3": "100,250",
+            "GHNSW-V7": "100,250",
+            "GHNSW-V6": "100,250",
+            "GHNSW-V5": "100,250",
+            "NAVIX":    "4,6,8,10,12,14,16,18,20,30,40,50,60,80,100,120,140,160,180,200",
+            "HNSW":     "2,10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,160,200",
+            # "ACORN":    "10,20,25,30,35,40,45,50,55,60,70,80,100,120,140,160,200,240,280,500,800",
+            "ACORN":    "850,900,950,1000,1100,1200,1300,1400,1500,1600",
+        },
+    },
+    {
+        "dataset_name": "Sift1M-0.00027-1M-4hop-20group",
+        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.00027-1M-4hop-20group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.00027-1M-4hop-20group",
+        "acorn_gamma": "2",
+        "ef_lists": {
+            "GHNSW-V3": "100,250",
+            "GHNSW-V7": "100,250",
+            "GHNSW-V6": "100,250",
+            "GHNSW-V5": "100,250",
+            "NAVIX":    "4,6,8,10,12,14,16,18,20,30,40,50,60,80,100,120,140,160,180,200",
+            "HNSW":     "2,10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,160,200",
+            # "ACORN":    "10,20,25,30,35,40,45,50,55,60,70,80,100,120,140,160,200,240,280,500,800",
+            "ACORN":    "850,900,950,1000,1100,1200,1300,1400,1500,1600",
+        },
+    },
+    {
+        "dataset_name": "Sift1M-0.00027-1M-5hop-20group",
+        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.00027-1M-5hop-20group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.00027-1M-5hop-20group",
+        "acorn_gamma": "2",
+        "ef_lists": {
+            "GHNSW-V3": "100,250",
+            "GHNSW-V7": "100,250",
+            "GHNSW-V6": "100,250",
+            "GHNSW-V5": "100,250",
+            "NAVIX":    "4,6,8,10,12,14,16,18,20,30,40,50,60,80,100,120,140,160,180,200",
+            "HNSW":     "2,10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,160,200",
+            # "ACORN":    "10,20,25,30,35,40,45,50,55,60,70,80,100,120,140,160,200,240,280,500,800",
+            "ACORN":    "850,900,950,1000,1100,1200,1300,1400,1500,1600",
+        },
+    },
+    {
+        "dataset_name": "Sift1M-0.00027-1M-6hop-20group",
+        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.00027-1M-6hop-20group",
+        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.00027-1M-6hop-20group",
+        "acorn_gamma": "2",
+        "ef_lists": {
+            "GHNSW-V3": "100,250",
+            "GHNSW-V7": "100,250",
+            "GHNSW-V6": "100,250",
+            "GHNSW-V5": "100,250",
+            "NAVIX":    "4,6,8,10,12,14,16,18,20,30,40,50,60,80,100,120,140,160,180,200",
+            "HNSW":     "2,10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,160,200",
+            # "ACORN":    "10,20,25,30,35,40,45,50,55,60,70,80,100,120,140,160,200,240,280,500,800",
+            "ACORN":    "850,900,950,1000,1100,1200,1300,1400,1500,1600",
+        },
+    },
+]
+
+# 1. 数据集配置（每个 dataset 定义各 baseline 对应的 ef_list）
+datasets = SCALA_DEEP
+
+# 2. 基线算法配置（去掉 ef_list_idx，直接用 name 作为键）
 baselines_config = [
-    {"name": "GHNSW-V6", "exe_name": "baseline_ghnsw_v6", "ef_list_idx": 0, "extra_argv": ["--bf-fpp", "0.01"]},
-    {"name": "GHNSW-V5", "exe_name": "baseline_ghnsw_v5", "ef_list_idx": 0, "extra_argv": ["--bf-fpp", "0.01"]},
-    {"name": "HNSW", "exe_name": "baseline_hnsw", "ef_list_idx": 0},
-    {"name": "ACORN", "exe_name": "baseline_acorn", "ef_list_idx": 1},
-    {"name": "NAVIX", "exe_name": "baseline_navix", "ef_list_idx": 1},
+    {"name": "GHNSW-V5", "exe_name": "baseline_ghnsw_v5", "extra_argv": ["--bf-fpp", "0.01"]},
+    {"name": "GHNSW-V7", "exe_name": "baseline_ghnsw_v7", "extra_argv": ["--bf-fpp", "0.01"]},
+    # {"name": "GHNSW-V3", "exe_name": "baseline_ghnsw_v3", "extra_argv": ["--bf-fpp", "0.01", "--M", "32"]},
+    # {"name": "NAVIX", "exe_name": "baseline_navix"},
+    # {"name": "HNSW",  "exe_name": "baseline_hnsw"},
+    # {"name": "ACORN", "exe_name": "baseline_acorn"},
 ]
 
 # 3. 动态生成 EXP_JOBS
@@ -71,17 +426,21 @@ def generate_exp_jobs(datasets_to_run, baselines_to_run):
     jobs = []
     build_dir = "/home/jiangyuntao/hnswlib-flex/build"
     for dataset_cfg in datasets_to_run:
+        ef_map = dataset_cfg.get("ef_lists", {})
         for baseline_cfg in baselines_to_run:
-            job_name = f"{baseline_cfg['name']}_{dataset_cfg['dataset_name']}"
-            
+            bname = baseline_cfg["name"]
+            if bname not in ef_map:
+                raise ValueError(f"dataset '{dataset_cfg['dataset_name']}' 未提供 baseline '{bname}' 的 ef_list")
+            job_name = f"{bname}_{dataset_cfg['dataset_name']}"
+
             argv = [
                 "--data-dir", dataset_cfg["data_dir"],
                 "--out", dataset_cfg["log_dir"],
-                "--ef-list", ef_list[baseline_cfg["ef_list_idx"]],
+                "--ef-list", ef_map[bname],
             ]
-            
+
             # 为 ACORN 添加特定的、与数据集相关的参数
-            if baseline_cfg["name"] == "ACORN" and "acorn_gamma" in dataset_cfg:
+            if bname == "ACORN" and "acorn_gamma" in dataset_cfg:
                 argv.extend(["--acorn-gamma", dataset_cfg["acorn_gamma"]])
 
             if "extra_argv" in baseline_cfg:
@@ -125,6 +484,20 @@ def run_job(job: dict) -> tuple[str, int]:
             return name, -1
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--serial", action="store_true", help="串行执行所有 baseline 任务")
+    parser.add_argument(
+        "--mp",
+        action="store_true",
+        help="使用 multiprocessing.pool.Pool 多进程执行（适合 CPU/子进程调度开销较大场景）",
+    )
+    parser.add_argument("--max-workers", type=int, default=None, help="并行执行时的最大并发数（默认=任务数）")
+    args = parser.parse_args()
+
+    if args.serial and args.mp:
+        print("错误：--serial 与 --mp 不能同时使用", file=sys.stderr)
+        sys.exit(1)
+
     # 校验每个任务的可执行文件
     bad = []
     for job in EXP_JOBS:
@@ -136,17 +509,39 @@ def main():
             print(f"错误：[{n}] 找不到可执行文件或无执行权限: {e}", file=sys.stderr)
         sys.exit(1)
 
-    max_workers = len(EXP_JOBS)  # 资源足够 -> 全部并行
-    print(f"并发执行 {len(EXP_JOBS)} 个 baseline 任务，max_workers={max_workers}")
-
     results = []
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        futs = [ex.submit(run_job, job) for job in EXP_JOBS]
-        for fut in as_completed(futs):
-            name, code = fut.result()
+
+    if args.serial:
+        print(f"串行执行 {len(EXP_JOBS)} 个 baseline 任务")
+        for job in EXP_JOBS:
+            name, code = run_job(job)
             status = "OK" if code == 0 else f"FAIL({code})"
             print(f"[{status}] {name}")
             results.append((name, code))
+
+    elif args.mp:
+        # multiprocessing：默认并发数=任务数（保持与你原来 threads 逻辑一致）
+        processes = args.max_workers or len(EXP_JOBS)
+        print(f"多进程执行 {len(EXP_JOBS)} 个 baseline 任务，processes={processes}")
+
+        # 使用 imap_unordered 以便边完成边输出
+        with Pool(processes=processes) as pool:
+            for name, code in pool.imap_unordered(run_job, EXP_JOBS, chunksize=1):
+                status = "OK" if code == 0 else f"FAIL({code})"
+                print(f"[{status}] {name}")
+                results.append((name, code))
+
+    else:
+        max_workers = args.max_workers or len(EXP_JOBS)  # 资源足够 -> 全部并行
+        print(f"并发执行 {len(EXP_JOBS)} 个 baseline 任务（线程池），max_workers={max_workers}")
+
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            futs = [ex.submit(run_job, job) for job in EXP_JOBS]
+            for fut in as_completed(futs):
+                name, code = fut.result()
+                status = "OK" if code == 0 else f"FAIL({code})"
+                print(f"[{status}] {name}")
+                results.append((name, code))
 
     fails = [n for n, c in results if c != 0]
     if fails:

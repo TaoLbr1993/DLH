@@ -58,8 +58,9 @@ CONFIG: Dict = {
     # -------- Palette (centralized) --------
     # You can tweak these once and reuse in ALGORITHMS
     "PALETTE": {
-        "GHNSW-V5": "#E24A33",
+        "GHNSW-V5": "#D68C1D",
         "GHNSW-V6": "#D68C1D",
+        "GHNSW-V7": "#E24A33",
         "HNSW": "#348ABD",
         "ACORN": "#988ED5",
         "NAVIX": "#777777",
@@ -71,31 +72,41 @@ CONFIG: Dict = {
     # value: display & file options
     "ALGORITHMS": {
         "GHNSW-V5": {
-            "label": "GHNSW-V5",
+            "label": "DLH",
             "filenames": ["GHNSW-V5_stats.log"],
             "color": "{PALETTE.GHNSW-V5}",
             "marker": "o",
-            "markersize": 3,
+            "markersize": 2,
             "line_width": 1,
             "markeredgewidth": 1.0,
             "visible": True,
         },
-        "GHNSW-V6": {
-            "label": "GHNSW-V6",
-            "filenames": ["GHNSW-V6_stats.log"],
-            "color": "{PALETTE.GHNSW-V6}",
-            "marker": "^",
-            "markersize": 3,
+        # "GHNSW-V6": {
+        #     "label": "GHNSW-V6",
+        #     "filenames": ["GHNSW-V6_stats.log"],
+        #     "color": "{PALETTE.GHNSW-V6}",
+        #     "marker": "^",
+        #     "markersize": 2,
+        #     "line_width": 1,
+        #     "markeredgewidth": 1.0,
+        #     "visible": True,
+        # },
+        "GHNSW-V7": {
+            "label": "DLH-M",
+            "filenames": ["GHNSW-V7_stats.log"],
+            "color": "{PALETTE.GHNSW-V7}",
+            "marker": "v",
+            "markersize": 2,
             "line_width": 1,
             "markeredgewidth": 1.0,
             "visible": True,
         },
         "HNSW": {
-            "label": "HNSW + Filter",
+            "label": "HNSW",
             "filenames": ["HNSW_stats.log"],
             "color": "{PALETTE.HNSW}",
             "marker": "s",
-            "markersize": 3,
+            "markersize": 2,
             "line_width": 1,
             "markeredgewidth": 1.0,
             "visible": True,
@@ -105,7 +116,7 @@ CONFIG: Dict = {
             "filenames": ["ACORN_stats.log"],
             "color": "{PALETTE.ACORN}",
             "marker": "^",
-            "markersize": 3,
+            "markersize": 2,
             "line_width": 1,
             "markeredgewidth": 1.0,
             "visible": True,
@@ -115,7 +126,7 @@ CONFIG: Dict = {
             "filenames": ["NAVIX_stats.log"],
             "color": "{PALETTE.NAVIX}",
             "marker": "D",
-            "markersize": 3,
+            "markersize": 2,
             "line_width": 1,
             "markeredgewidth": 1.0,
             "visible": True,
@@ -125,7 +136,7 @@ CONFIG: Dict = {
             "filenames": ["BF_stats.log"],
             "color": "{PALETTE.Pre-Filtering}",
             "marker": "x",
-            "markersize": 3,
+            "markersize": 2,
             "line_width": 1,
             "markeredgewidth": 1.0,
             "visible": True,
@@ -135,14 +146,14 @@ CONFIG: Dict = {
     # Which algorithms to draw per mode (and their ordering/z‑order precedence)
     "ORDERS": {
         "range": [
-            "GHNSW-V5", "GHNSW-V6", "HNSW", "ACORN", "NAVIX", "Pre-Filtering",
+            "GHNSW-V5", "GHNSW-V7", "HNSW", "ACORN", "NAVIX", "Pre-Filtering",
         ],
         "tag": [
-            "GHNSW-V5", "GHNSW-V6", "HNSW", "ACORN", "NAVIX", "Pre-Filtering",
+            "GHNSW-V5", "GHNSW-V7", "HNSW", "ACORN", "NAVIX", "Pre-Filtering",
         ],
         # Legend order (if you want a global legend); defaults to the union of above
         "legend": [
-            "GHNSW-V5", "GHNSW-V6", "HNSW", "ACORN", "NAVIX", "Pre-Filtering",
+            "GHNSW-V5", "GHNSW-V7", "HNSW", "ACORN", "NAVIX", "Pre-Filtering",
         ],
     },
 
@@ -151,9 +162,10 @@ CONFIG: Dict = {
         # dataset -> mode -> (y_min, y_max)
         "dataset_settings": {
             "RANDOM": {"range": (2, 2000),    "tag": (2, 2000 )},
-            "Sift1M": {"range": (2, 4000),    "tag": (2, 4000)},
-            "WIT":    {"range": (2, 2000 ),     "tag": (2, 2000 )},
-            "YFCC":   {"range": (2, 4000 ),     "tag": (2, 4000 )},
+            "Sift1M": {"range": (2, 6000),    "tag": (2, 6000)},
+            "Gist1M": {"range": (2, 3000),    "tag": (2, 3000)},
+            "Deep10M": {"range": (2, 6000),    "tag": (2, 6000)},
+            "YFCC10M": {"range": (2, 6000),    "tag": (2, 6000)},
         },
         "x_range": (0.78, 1.02),
         "x_ticks": [0.8, 0.85, 0.9, 0.95, 1.0],
@@ -380,6 +392,10 @@ def gen_main_page(group_name: str, mode: str, *, y_min: float, y_max: float):
         save=False,
     )
 
+    axes["A"].set_ylabel("QPS (/s)", fontdict={'size': 16})
+    axes["A"].set_xlabel("Recall Rate", fontdict={'size': 16})
+    axes["A"].tick_params(labelsize=14)
+
     out = Path(CONFIG["PATHS"]["FIG_ROOT"]) / f"{group_name}.svg"
     save_fig(fig, save_path=str(out))
 
@@ -546,18 +562,18 @@ if __name__ == "__main__":
 
     # Example: single figures (kept for compatibility)
     groups = [
-        # "RANDOM-d128-n50000",
-        # "RANDOM-d128-n100000",
-        # "Sift1M-0.0003-20w",
-        # "Sift1M-0.0001-20w-4hop",
-        # "Sift1M-0.0003-20w-3hop",
-        # "Sift1M-0.00005-20w-4hop",
-        # "Sift1M-0.0002-20w-4hop",
-        # "Sift1M-0.0001-20w-4hop-2group",
-        # "Sift1M-0.00012-20w-4hop-2group",
-        # "Sift1M-0.00015-20w-4hop-2group",
-        "Sift1M-0.00018-20w-4hop-2group",
-        "Sift1M-0.0002-20w-4hop-2group",
+        # "Sift1M-0.00025-1M-4hop-20group",
+        # "Sift1M-0.00027-1M-4hop-20group",
+        # "Sift1M-0.0003-1M-4hop-20group",
+        # "Gist1M-0.00025-1M-4hop-20group",
+        # "Gist1M-0.00027-1M-4hop-20group",
+        # "Gist1M-0.0003-1M-4hop-20group",
+        # "Deep10M-0.00025-1M-4hop-20group",
+        # "Deep10M-0.00027-1M-4hop-20group",
+        # "Deep10M-0.0003-1M-4hop-20group",
+        # "YFCC10M-0.00025-1M-4hop-20group",
+        # "YFCC10M-0.00027-1M-4hop-20group",
+        # "YFCC10M-0.0003-1M-4hop-20group",
     ]
     for g in groups:
         mode = "range" if "-range-" in g else "tag"

@@ -49,7 +49,7 @@ typedef long long lint;
 
 using namespace BloomFilter;
 
-namespace hnswlib{
+// namespace hnswlib{
 class SV {
 public:
 	SV();
@@ -1415,5 +1415,5 @@ DisOracle::~DisOracle() {
 	if( label_bp ) delete[] label_bp; if( usd_bp ) delete[] usd_bp;
 }
 
-}
+// }
 #endif /* DIS_H_ */

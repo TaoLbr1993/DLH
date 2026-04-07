@@ -91,7 +91,7 @@ class BFLabelHashEle {
 	
 	unsigned int maxmov;
 	BloomFilter::bloom_filter bf;
-
+	
 	static double false_positive_probability;
 
 	BFLabelHashEle(): n_ele(0){};
@@ -119,6 +119,19 @@ class BFLabelHashEle {
 		}
 		return false;
 	}
+
+    // V7: 针对 “label[u] 已预计算好 (byte_index, mask)” 的快速版本
+    bool isIntersect_fast(const std::uint32_t* byte_index,
+                          const unsigned char* mask,
+                          int start, int size,
+                          std::size_t salt_count) const {
+        for (int i = 0; i < size; ++i) {
+            const std::size_t off = (static_cast<std::size_t>(start + i) * salt_count);
+            if (bf.contains_fast(byte_index + off, mask + off, salt_count)) return true;
+        }
+        return false;
+    }
+
 	bool isIntersect(BFLabelHashEle & bf2) {
 		BloomFilter::bloom_filter bft = bf | bf2.bf;
 		
@@ -180,6 +193,13 @@ public:
 	void see_hash();
 
 	void init_query_node(int q);
+
+private:
+    // V7 缓存（对应“当前查询点 u = nid[q]”）
+    int cached_q_;
+    std::size_t cached_salt_count_;
+    std::vector<std::uint32_t> cached_byte_index_; // [label_size * salt_count]
+    std::vector<unsigned char> cached_mask_;       // [label_size * salt_count]
 };
 
 //======implementation========
@@ -498,7 +518,8 @@ void DisOracle::const_hash() {
         std::cout << "size:0" << std::endl;
         return;
     }
-	
+
+
 	hashes = new BFLabelHashEle*[n];
 	int maxcnt = -1;
 	for (int i=0; i<n; i++) {
@@ -713,6 +734,10 @@ DisOracle::DisOracle() {
 	n = 0; nid = NULL; label = NULL; is_indep = NULL; m = 0; nown = 0;
 	last_t = NULL; dis = NULL; t = 0; con = NULL; dat = NULL; deg = NULL;
 	label_bp = NULL; usd_bp = NULL;
+
+    // V7
+    cached_q_ = -1;
+    cached_salt_count_ = 0;
 }
 
 DisOracle::DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool consider_indep) {
@@ -735,12 +760,12 @@ DisOracle::DisOracle(std::vector<std::pair<int,int>> &el, int max_range, bool co
 	printf( "MAXDIS=%d, nown=%d, consider_indep=%s\n", MAXDIS, nown, consider_indep?"true":"false" );
 
 	pos = new int*[n];
-	// for( int i = 0; i < n; ++i ) pos[i] = new int[MAXDIS];
+	// for( int i = 0; i < n; ++i ) pos[i] = new int[MAXDIS + 1];
 	for (int i = 0; i < n; ++i) {
         pos[i] = new int[MAXDIS + 1];
         std::memset(pos[i], 0, sizeof(int) * (MAXDIS + 1));
     }
-	
+
 	label = new vector<unsigned>[n];
 	is_indep = new bool[n];
 	memset(is_indep, 0, sizeof(bool) * n);
@@ -1158,6 +1183,12 @@ void DisOracle::init_query() {
 	last_t = new tint[n];
 	memset( last_t, 0, sizeof(tint) * n );
 	dis = new char[n];
+    
+    // V7
+    cached_q_ = -1;
+    cached_salt_count_ = 0;
+    cached_byte_index_.clear();
+    cached_mask_.clear();
 }
 
 void DisOracle::load_graph(string path) {
@@ -1270,78 +1301,182 @@ int DisOracle::query_by_nid(int u, int v) {
 // 	return false;
 // }
 
-void DisOracle::init_query_node(int q) {
-
-}
-
-
-bool DisOracle::query_by_nid_es(int u, int v, int search_k) {
-	++t;
-		if (t == MAXT) {
-			memset(last_t, 0, sizeof(tint)*n);
-			t=1;
-		}
+// bool DisOracle::query_by_nid_esV5(int u, int v, int search_k) {
+// aligned with pslV5: hnsw + psl + bloom filter
+// 	++t;
+// 		if (t == MAXT) {
+// 			memset(last_t, 0, sizeof(tint)*n);
+// 			t=1;
+// 		}
 	
-	int ktmp = min(search_k, POS_ENHASH-1);
+// 	int ktmp = min(search_k, POS_ENHASH-1);
 
-	for (int ks = 0; ks <=ktmp; ks++) {
+// 	for (int ks = 0; ks <=ktmp; ks++) {
 		
-		int ru = pos[u][ks]; //(ks==search_k)?(int) label[u].size():pos[u][ks];
-		for (int i=0; i<ru; i++) {
-			int w = label[u][i] >> MAXMOV;
-			char d = label[u][i]&MASK;
-			last_t[w] = t; dis[w] = d;
-		}
-		int rks = std::max(0, std::min(ktmp, search_k-ks));
-		// std::cout << "ks:" << ks << " rks:" << rks << std::endl;
-		// int lv = (rks==0)?0:pos[v][rks-1];
-		int lv = 0;
-		int rv = pos[v][rks]; //(rks==search_k)?(int) label[v].size():pos[v][rks];
-		for (int i=lv; i < rv; i++) {
-			int w = label[v][i]>>MAXMOV;
-			char d = label[v][i]&MASK;
-			if (last_t[w] == t && (char)(d+dis[w])<=search_k) return true;
-		}
-	}
-	// return false;
+// 		int ru = pos[u][ks]; //(ks==search_k)?(int) label[u].size():pos[u][ks];
+// 		for (int i=0; i<ru; i++) {
+// 			int w = label[u][i] >> MAXMOV;
+// 			char d = label[u][i]&MASK;
+// 			last_t[w] = t; dis[w] = d;
+// 		}
+// 		int rks = std::max(0, std::min(ktmp, search_k-ks));
+// 		// std::cout << "ks:" << ks << " rks:" << rks << std::endl;
+// 		int lv = (rks==0)?0:pos[v][rks-1];
+// 		int rv = pos[v][rks]; //(rks==search_k)?(int) label[v].size():pos[v][rks];
+// 		for (int i=lv; i < rv; i++) {
+// 			int w = label[v][i]>>MAXMOV;
+// 			char d = label[v][i]&MASK;
+// 			if (last_t[w] == t && (char)(d+dis[w])<=search_k) return true;
+// 		}
+// 	}
+// 	// return false;
 
-	// int ktmp = min(search_k, POS_ENHASH);
-	// for (int ks = 1; ks<ktmp; ks++) {
-	// 	// std::cout << "ks" << ks << std::endl;
-	// 	int ls = min(search_k-ks, POS_ENHASH-1);
-	// 	unsigned lu = (unsigned)pos[u][ks], lv = (unsigned)pos[v][ls];
-	// 	for (int i=(unsigned) pos[u][ks-1], j=0; i<lu && j<lv; i++) {
-	// 		// std::cout << i << "," << j << std::endl;
-	// 		for (; j<lv && label[v][j]>>MAXMOV < label[u][i]>>MAXMOV; j++) ;
-	// 		if (j<lv && label[v][j]>>MAXMOV == label[u][i]>>MAXMOV) return true;
-	// 	}
-	// }
+// 	// int ktmp = min(search_k, POS_ENHASH);
+// 	// for (int ks = 1; ks<ktmp; ks++) {
+// 	// 	// std::cout << "ks" << ks << std::endl;
+// 	// 	int ls = min(search_k-ks, POS_ENHASH-1);
+// 	// 	unsigned lu = (unsigned)pos[u][ks], lv = (unsigned)pos[v][ls];
+// 	// 	for (int i=(unsigned) pos[u][ks-1], j=0; i<lu && j<lv; i++) {
+// 	// 		// std::cout << i << "," << j << std::endl;
+// 	// 		for (; j<lv && label[v][j]>>MAXMOV < label[u][i]>>MAXMOV; j++) ;
+// 	// 		if (j<lv && label[v][j]>>MAXMOV == label[u][i]>>MAXMOV) return true;
+// 	// 	}
+// 	// }
 
-	if (POS_ENHASH<=search_k) {
-		for (int i=POS_ENHASH; i<=search_k; i++) {
-			int rr = search_k-i;
-			if (rr>=0 && hashes[u][i-POS_ENHASH].isIntersect(label[v], 0, pos[v][0])) {
-				return true;
-			}
-			for (int j=1; j<=rr; j++) {
-				if (j<POS_ENHASH &&
-				hashes[u][i-POS_ENHASH].isIntersect(label[v], pos[v][j-1], pos[v][j]-pos[v][j-1])) return true;
-				else if (j>=POS_ENHASH && hashes[u][i-POS_ENHASH].isIntersect(hashes[v][j-POS_ENHASH])) return true;
-			}
-		}  
+// 	if (POS_ENHASH<=search_k) {
+// 		for (int i=POS_ENHASH; i<=search_k; i++) {
+// 			int rr = search_k-i;
+// 			if (rr>=0 && hashes[u][i-POS_ENHASH].isIntersect(label[v], 0, pos[v][0])) {
+// 				return true;
+// 			}
+// 			for (int j=1; j<=rr; j++) {
+// 				if (j<POS_ENHASH &&
+// 				hashes[u][i-POS_ENHASH].isIntersect(label[v], pos[v][j-1], pos[v][j]-pos[v][j-1])) return true;
+// 				else if (j>=POS_ENHASH && hashes[u][i-POS_ENHASH].isIntersect(hashes[v][j-POS_ENHASH])) return true;
+// 			}
+// 		}  
 
 		
-		for (int j=POS_ENHASH; j<=search_k; j++) {
-			int rr = min(search_k-j, POS_ENHASH-1);
-			if (rr>=0 && hashes[v][j-POS_ENHASH].isIntersect(label[u], 0, pos[u][0])) return true;
-			for (int i=1; i<=rr; i++) {
-				if (hashes[v][j-POS_ENHASH].isIntersect(label[u], pos[u][i-1], pos[u][i]-pos[u][i-1])) return true;
-			}
-		}
-	}
-	return false;
+// 		for (int j=POS_ENHASH; j<=search_k; j++) {
+// 			int rr = min(search_k-j, POS_ENHASH-1);
+// 			if (rr>=0 && hashes[v][j-POS_ENHASH].isIntersect(label[u], 0, pos[u][0])) return true;
+// 			for (int i=1; i<=rr; i++) {
+// 				if (hashes[v][j-POS_ENHASH].isIntersect(label[u], pos[u][i-1], pos[u][i]-pos[u][i-1])) return true;
+// 			}
+// 		}
+// 	}
+// 	return false;
+// }
+
+// V7: init_query_node 预计算 dis + bloom 索引
+void DisOracle::init_query_node(int q) {
+    q = nid[q];
+
+    // 原 V6：预填 dis[]
+    memset(dis, 64, sizeof(char) * n);
+    int lq = (int) label[q].size();
+    for (int i=0; i<lq; i++) {
+        int w = label[q][i]>>MAXMOV;
+        int d = label[q][i]&MASK;
+        dis[w] = d;
+    }
+
+    // V7：仅对“查询点 u=q”的 label[q] 预计算 (byte_index, mask)，供后续 hashes[v].contains_fast 使用
+    cached_q_ = q;
+    if (!hashes || !hashes[0]) {
+        cached_salt_count_ = 0;
+        cached_byte_index_.clear();
+        cached_mask_.clear();
+        return;
+    }
+
+	if (MAXDIS < (unsigned)POS_ENHASH) return;
+
+    const std::size_t salt_count = hashes[0][0].bf.hash_count();
+    cached_salt_count_ = salt_count;
+
+	// MAXDIS == max_range == search_k
+	int need_pre_dis = min(int(MAXDIS - POS_ENHASH), POS_ENHASH - 1);
+	lq = max(0, pos[q][need_pre_dis]); // 仅预计算会用到的部分
+
+    cached_byte_index_.resize(static_cast<std::size_t>(lq) * salt_count);
+    cached_mask_.resize(static_cast<std::size_t>(lq) * salt_count);
+
+    for (int i = 0; i < lq; ++i) {
+        const unsigned int key = (label[q][i] >> MAXMOV);
+        hashes[0][0].bf.precompute_indices(
+            key,
+            &cached_byte_index_[static_cast<std::size_t>(i) * salt_count],
+            &cached_mask_[static_cast<std::size_t>(i) * salt_count]
+        );
+    }
 }
 
+// V7: 仅加速 “hashes[v] vs label[u]” 的方向；hashes[u] vs label[v] 保持原样
+bool DisOracle::query_by_nid_es(int u, int v, int search_k) {
+    int ktmp = min(search_k, POS_ENHASH-1);
+
+    for (int ks = 0; ks <=ktmp; ks++) {
+        int rks = std::max(0, std::min(ktmp, search_k-ks));
+        // int lv = (rks==0)?0:pos[v][rks-1];
+		int lv = 0;
+        int rv = pos[v][rks];
+        for (int i=lv; i < rv; i++) {
+            int w = label[v][i]>>MAXMOV;
+            int d = label[v][i]&MASK;
+            if ((char)(d+dis[w])<=search_k) return true;
+        }
+    }
+
+    if (POS_ENHASH<=search_k) {
+        // 这一段（hashes[u] vs label[v]/hashes[v]）按要求：不加速，保持 V6 原样
+        for (int i=POS_ENHASH; i<=search_k; i++) {
+            int rr = search_k-i;
+            if (rr>=0 && hashes[u][i-POS_ENHASH].isIntersect(label[v], 0, pos[v][0])) {
+                return true;
+            }
+            for (int j=1; j<=rr; j++) {
+                if (j<POS_ENHASH &&
+                    hashes[u][i-POS_ENHASH].isIntersect(label[v], pos[v][j-1], pos[v][j]-pos[v][j-1])) return true;
+                else if (j>=POS_ENHASH && hashes[u][i-POS_ENHASH].isIntersect(hashes[v][j-POS_ENHASH])) return true;
+            }
+        }
+
+        // 这一段是目标：hashes[v] vs label[u]，对 u=查询点启用 fast
+        const bool can_fast =
+            (cached_q_ == u) &&
+            (cached_salt_count_ > 0) &&
+            (!cached_byte_index_.empty()) &&
+            (!cached_mask_.empty());
+
+        for (int j=POS_ENHASH; j<=search_k; j++) {
+            int rr = min(search_k-j, POS_ENHASH-1);
+
+            if (rr >= 0) {
+                if (can_fast) {
+                    if (hashes[v][j-POS_ENHASH].isIntersect_fast(
+                            cached_byte_index_.data(), cached_mask_.data(),
+                            0, pos[u][0], cached_salt_count_)) return true;
+                } else {
+                    if (hashes[v][j-POS_ENHASH].isIntersect(label[u], 0, pos[u][0])) return true;
+                }
+            }
+
+            for (int i=1; i<=rr; i++) {
+                const int start = pos[u][i-1];
+                const int size = pos[u][i] - pos[u][i-1];
+                if (can_fast) {
+                    if (hashes[v][j-POS_ENHASH].isIntersect_fast(
+                            cached_byte_index_.data(), cached_mask_.data(),
+                            start, size, cached_salt_count_)) return true;
+                } else {
+                    if (hashes[v][j-POS_ENHASH].isIntersect(label[u], start, size)) return true;
+                }
+            }
+        }
+    }
+    return false;
+}
 
 
 int DisOracle::query_by_t(int u, int v) {
