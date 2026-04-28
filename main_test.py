@@ -388,9 +388,9 @@ datasets = MAIN_SIFT
 
 # 2. 基线算法配置（去掉 ef_list_idx，直接用 name 作为键）
 baselines_config = [
-    {"name": "DLH", "exe_name": "baseline_dlh", "extra_argv": ["--bf-fpp", "0.01"]},
-    {"name": "DLH-M", "exe_name": "baseline_dlh-m", "extra_argv": ["--bf-fpp", "0.01"]},
-    {"name": "DAL", "exe_name": "baseline_dal", "extra_argv": ["--bf-fpp", "0.01", "--M", "32"]},
+    {"name": "DLH", "exe_name": "dlh", "extra_argv": ["--bf-fpp", "0.01"]},
+    {"name": "DLH-M", "exe_name": "dlh-m", "extra_argv": ["--bf-fpp", "0.01"]},
+    {"name": "DAL", "exe_name": "dal", "extra_argv": ["--bf-fpp", "0.01", "--M", "32"]},
     {"name": "NAVIX", "exe_name": "baseline_navix"},
     {"name": "HNSW",  "exe_name": "baseline_hnsw"},
     {"name": "ACORN", "exe_name": "baseline_acorn"},
@@ -459,12 +459,6 @@ def run_job(job: dict) -> tuple[str, int]:
             return name, -1
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--serial", action="store_true", help="串行执行所有 baseline 任务")
-    
-    args = parser.parse_args()
-
-
     # 校验每个任务的可执行文件
     bad = []
     for job in EXP_JOBS:
@@ -478,13 +472,12 @@ def main():
 
     results = []
 
-    if args.serial:
-        print(f"串行执行 {len(EXP_JOBS)} 个 baseline 任务")
-        for job in EXP_JOBS:
-            name, code = run_job(job)
-            status = "OK" if code == 0 else f"FAIL({code})"
-            print(f"[{status}] {name}")
-            results.append((name, code))
+    print(f"串行执行 {len(EXP_JOBS)} 个 baseline 任务")
+    for job in EXP_JOBS:
+        name, code = run_job(job)
+        status = "OK" if code == 0 else f"FAIL({code})"
+        print(f"[{status}] {name}")
+        results.append((name, code))
 
 
     fails = [n for n, c in results if c != 0]
