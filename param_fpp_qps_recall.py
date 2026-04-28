@@ -27,16 +27,16 @@ LOG_DIRS: List[str] = [
 # ----------------------------
 METHODS = [
     {
-        "key": "GHNSW-V5",
+        "key": "DLH",
         "label": "DLH",
-        "filename": "GHNSW-V5_stats.log",
+        "filename": "DLH_stats.log",
         "color": "tab:orange",
         "marker": "o",
     },
     {
-        "key": "GHNSW-V7",
+        "key": "DLH-M",
         "label": "DLH-M",
-        "filename": "GHNSW-V7_stats.log",
+        "filename": "DLH-M_stats.log",
         "color": "tab:red",
         "marker": "^",
     },

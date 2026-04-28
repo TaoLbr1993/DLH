@@ -58,9 +58,8 @@ CONFIG: Dict = {
     # -------- Palette (centralized) --------
     # You can tweak these once and reuse in ALGORITHMS
     "PALETTE": {
-        "GHNSW-V5": "#D68C1D",
-        "GHNSW-V6": "#D68C1D",
-        "GHNSW-V7": "#E24A33",
+        "DLH": "#D68C1D",
+        "DLH-M": "#E24A33",
         "HNSW": "#348ABD",
         "ACORN": "#988ED5",
         "NAVIX": "#777777",
@@ -71,30 +70,20 @@ CONFIG: Dict = {
     # key: short stable key used by ORDERS, legend, and generators
     # value: display & file options
     "ALGORITHMS": {
-        "GHNSW-V5": {
+        "DLH": {
             "label": "DLH",
-            "filenames": ["GHNSW-V5_stats.log"],
-            "color": "{PALETTE.GHNSW-V5}",
+            "filenames": ["DLH_stats.log"],
+            "color": "{PALETTE.DLH}",
             "marker": "o",
             "markersize": 2,
             "line_width": 1,
             "markeredgewidth": 1.0,
             "visible": True,
         },
-        # "GHNSW-V6": {
-        #     "label": "GHNSW-V6",
-        #     "filenames": ["GHNSW-V6_stats.log"],
-        #     "color": "{PALETTE.GHNSW-V6}",
-        #     "marker": "^",
-        #     "markersize": 2,
-        #     "line_width": 1,
-        #     "markeredgewidth": 1.0,
-        #     "visible": True,
-        # },
-        "GHNSW-V7": {
+        "DLH-M": {
             "label": "DLH-M",
-            "filenames": ["GHNSW-V7_stats.log"],
-            "color": "{PALETTE.GHNSW-V7}",
+            "filenames": ["DLH-M_stats.log"],
+            "color": "{PALETTE.DLH-M}",
             "marker": "v",
             "markersize": 2,
             "line_width": 1,
@@ -146,14 +135,14 @@ CONFIG: Dict = {
     # Which algorithms to draw per mode (and their ordering/z‑order precedence)
     "ORDERS": {
         "range": [
-            "GHNSW-V5", "GHNSW-V7", "HNSW", "ACORN", "NAVIX", "Pre-Filtering",
+            "DLH", "DLH-M", "HNSW", "ACORN", "NAVIX", "Pre-Filtering",
         ],
         "tag": [
-            "GHNSW-V5", "GHNSW-V7", "HNSW", "ACORN", "NAVIX", "Pre-Filtering",
+            "DLH", "DLH-M", "HNSW", "ACORN", "NAVIX", "Pre-Filtering",
         ],
         # Legend order (if you want a global legend); defaults to the union of above
         "legend": [
-            "GHNSW-V5", "GHNSW-V7", "HNSW", "ACORN", "NAVIX", "Pre-Filtering",
+            "DLH", "DLH-M", "HNSW", "ACORN", "NAVIX", "Pre-Filtering",
         ],
     },
 

@@ -1,5 +1,5 @@
 #include "../../hnswlib/hnswlib.h"
-#include "../../hnswlib/pslV6.h"
+#include "../../hnswlib/pslV5.h"
 #include "../common/dataset_io.h"
 #include "../common/metrics.h"
 #include <chrono>
@@ -12,8 +12,6 @@
 #include <unordered_set>
 #include <sys/stat.h>
 
-// 新增：公共内存统计
-#include "../common/memstat.h"
 
 // PSL 过滤器
 // 原版本基于原始点 id，现在改为基于超级节点 id 进行 PSL 过滤：
@@ -46,7 +44,7 @@ static void split_csv(const std::string &s, std::vector<size_t> &out) {
     }
 }
 
-// 定义可写的静态变量默认值（对应 pslV6.h 中的声明）
+// 定义可写的静态变量默认值（对应 pslV5.h 中的声明）
 double BFLabelHashEle::false_positive_probability = 0.01;
 
 int main(int argc, char **argv) {
@@ -91,9 +89,6 @@ int main(int argc, char **argv) {
               << " --bf-fpp=" << bf_fpp
               << std::endl;
 
-    // 新增：所有 baseline 复用的内存日志器
-    memstat::Logger memlog;
-    memlog.snap("程序启动");
 
     // 载入数据
     auto ds = load_dataset_all(data_dir);
@@ -127,7 +122,7 @@ int main(int argc, char **argv) {
         gt_sets[qi] = std::unordered_set<int>(beg, beg + ds.K);
     }
 
-    memlog.snap("数据载入完成");
+    
 
     // 新增：统计索引构建时间
     auto t_build_start = std::chrono::steady_clock::now();
@@ -161,10 +156,13 @@ int main(int argc, char **argv) {
     auto build_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_build_end - t_build_start).count();
     std::cout << "[计时] 索引构建时间: " << build_ms << " ms" << std::endl;
 
-    memlog.snap("索引构建完成");
+    
 
     // 打印索引大小
     std::cout << "HNSW 索引大小: " << index.indexFileSize() << " bytes" << std::endl;
+
+    // // 只需要拿到大小信息，直接返回
+    // return 0;
 
     // ef 列表
     std::vector<size_t> efs;
@@ -215,7 +213,7 @@ int main(int argc, char **argv) {
         double avg_recall = sum_recall / (double)ds.queries.Q;
         // 存原始 recall（0~1）
         recall_us_pairs.emplace_back(avg_recall, avg_us);
-        std::cout << "[GHNSW] ef=" << ef << " recall=" << std::fixed
+        std::cout << "[DLH] ef=" << ef << " recall=" << std::fixed
                   << std::setprecision(3) << avg_recall * 100.0
                   << "% time=" << avg_us << " us\n";
     }
@@ -225,7 +223,7 @@ int main(int argc, char **argv) {
     auto eval_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_eval_end - t_eval_start).count();
     std::cout << "[计时] 评测时间(包含全部ef轮次): " << eval_ms << " ms" << std::endl;
 
-    memlog.snap("评测完成");
+    
 
     // 写日志（与 parse_search_times 兼容）
     std::ostringstream oss;
@@ -233,7 +231,7 @@ int main(int argc, char **argv) {
     oss << "Search Times (ns):\n";
     oss << "Index \\ ef |";
     for (auto ef : efs) oss << " ef=" << ef;
-    oss << "\nGHNSW: " << std::fixed << std::setprecision(3);
+    oss << "\nDLH: " << std::fixed << std::setprecision(3);
     for (size_t i = 0; i < recall_us_pairs.size(); ++i) {
         oss << "(" << recall_us_pairs[i].first * 100.0 << ", "
             << recall_us_pairs[i].second << " us)";
@@ -241,18 +239,14 @@ int main(int argc, char **argv) {
     }
     oss << "\n";
 
-    std::ofstream fout(out_dir + "/GHNSW-V6_stats.log", std::ios::out | std::ios::trunc);
+    std::ofstream fout(out_dir + "/DLH_stats.log", std::ios::out | std::ios::trunc);
     fout << oss.str();
-    std::cout << "日志写入: " << (out_dir + "/GHNSW-V6_stats.log") << std::endl;
+    std::cout << "日志写入: " << (out_dir + "/DLH_stats.log") << std::endl;
 
     // 新增：程序总运行时间
     auto t_program_end = std::chrono::steady_clock::now();
     auto program_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_program_end - t_program_start).count();
     std::cout << "[计时] 程序总运行时间: " << program_ms << " ms" << std::endl;
-
-    memlog.snap("程序结束");
-
-    memlog.dump_to_file(out_dir + "/GHNSW-V6_memstat.log");
 
     return 0;
 }

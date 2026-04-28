@@ -10,7 +10,6 @@
 #include <unordered_set>
 #include <sys/stat.h>
 
-#include "../common/memstat.h"
 
 // k-hop 过滤器
 class KHopFilter : public hnswlib::BaseFilterFunctor {
@@ -70,10 +69,7 @@ int main(int argc, char **argv) {
               << " --M=" << M
               << " --efC=" << efC
               << std::endl;
-
-    // 新增：所有 baseline 复用的内存日志器
-    memstat::Logger memlog;
-    memlog.snap("程序启动");          
+         
 
     // 载入数据
     auto ds = load_dataset_all(data_dir);
@@ -108,7 +104,7 @@ int main(int argc, char **argv) {
         gt_sets[qi] = std::unordered_set<int>(beg, beg + ds.K);
     }
 
-    memlog.snap("数据载入完成");
+    
 
     auto t_build_start = std::chrono::steady_clock::now();
 
@@ -129,7 +125,7 @@ int main(int argc, char **argv) {
     auto build_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_build_end - t_build_start).count();
     std::cout << "[计时] 索引构建时间: " << build_ms << " ms" << std::endl;
 
-    memlog.snap("索引构建完成");
+    
 
     // 打印索引大小
     std::cout << "HNSW 索引大小: " << index.indexFileSize() << " bytes" << std::endl;
@@ -206,7 +202,7 @@ int main(int argc, char **argv) {
     auto eval_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_eval_end - t_eval_start).count();
     std::cout << "[计时] 评测时间(包含全部ef轮次): " << eval_ms << " ms" << std::endl;
 
-    memlog.snap("评测完成");
+    
 
     // 写日志（与 parse_search_times 兼容）
     std::ostringstream oss;
@@ -231,10 +227,6 @@ int main(int argc, char **argv) {
     auto t_program_end = std::chrono::steady_clock::now();
     auto program_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_program_end - t_program_start).count();
     std::cout << "[计时] 程序总运行时间: " << program_ms << " ms" << std::endl;
-
-    memlog.snap("程序结束");
-
-    memlog.dump_to_file(out_dir + "/HNSW_memstat.log");
 
     return 0;
 }

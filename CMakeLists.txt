@@ -96,21 +96,17 @@ if(HNSWLIB_EXAMPLES)
     add_executable(baseline_acorn data/baseline/baseline_acorn.cpp)
     target_link_libraries(baseline_acorn hnswlib faiss)
 
-    # ghnsw v5
-    add_executable(baseline_ghnsw_v5 data/baseline/baseline_ghnsw_v5.cpp)
-    target_link_libraries(baseline_ghnsw_v5 hnswlib)
+    # DLH
+    add_executable(baseline_dlh data/baseline/baseline_dlh.cpp)
+    target_link_libraries(baseline_dlh hnswlib)
 
-    # ghnsw v6
-    add_executable(baseline_ghnsw_v6 data/baseline/baseline_ghnsw_v6.cpp)
-    target_link_libraries(baseline_ghnsw_v6 hnswlib)
+    # DLH-M
+    add_executable(baseline_dlh-m data/baseline/baseline_dlh-m.cpp)
+    target_link_libraries(baseline_dlh-m hnswlib)
 
-    # ghnsw v7
-    add_executable(baseline_ghnsw_v7 data/baseline/baseline_ghnsw_v7.cpp)
-    target_link_libraries(baseline_ghnsw_v7 hnswlib)
-
-    # ghnsw v3
-    add_executable(baseline_ghnsw_v3 data/baseline/baseline_ghnsw_v3.cpp)
-    target_link_libraries(baseline_ghnsw_v3 hnswlib)
+    # DAL
+    add_executable(baseline_dal data/baseline/baseline_dal.cpp)
+    target_link_libraries(baseline_dal hnswlib)
 
     # bf
     add_executable(baseline_bf data/baseline/baseline_bf.cpp)
