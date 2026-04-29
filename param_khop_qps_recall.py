@@ -263,7 +263,7 @@ def _save_qps_svg(data) -> None:
 
     _plot_on_axis(ax, data, value_idx=2)
 
-    ax.set_xlabel("h")
+    ax.set_xlabel("r")
     ax.set_ylabel("QPS (/s)")
 
     ax.set_yscale("log")
@@ -299,7 +299,7 @@ def _save_recall_svg(data) -> None:
 
     _plot_on_axis(ax, data, value_idx=1)
 
-    ax.set_xlabel("h")
+    ax.set_xlabel("r")
     ax.set_ylabel("Recall Rate")
     ax.set_ylim(0.90, 1.00)
     ax.set_yticks([0.90, 0.92, 0.94, 0.96, 0.98, 1.00])
