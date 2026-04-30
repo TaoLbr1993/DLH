@@ -2,7 +2,6 @@
 
 #include "visited_list_pool.h"
 #include "hnswlib.h"
-#include "graph_gen.h"
 #include <atomic>
 #include <random>
 #include <stdlib.h>
@@ -10,13 +9,48 @@
 #include <unordered_set>
 #include <list>
 #include <memory>
+#include <cstring>
 
 namespace hnswlib {
 typedef unsigned int tableint;
 typedef unsigned int linklistsizeint;
 
+// template<typename dist_t>
+// struct GDistEle{
+//     int chop;
+//     dist_t dist;
+//     (int *) gdist;
+//     tableint iid;
+// }
+
+// class CompareGDist{
+//     public:
+//     bool operator()(GDistEle& a, GDistEle& b) {
+//         float alpha = 0.1
+//         // in-range larger than out-of-range
+//         if (a.chop == -1) && (b.chop > -1) return true;
+//         if (a.chop > -1) && (a.chop == -1) return false;
+//         // if both out-of-range, simple choose closer one
+//         if (a.chop == -1) && (b.chop == -1) return (a.dist < b.dist);
+
+//         // both in-range, choose a balanced value between
+//         // in-range results and dist
+//         int a_inrange = 0;
+//         int b_inrange = 0;
+//         for (int i=0; i<a.chop; i++) {
+//             a_inrange += *(a.gdist+i);
+//         }
+//         for (int i=0; i<b.chop; i++) {
+//             b_inrange += *(b.gdist+i);
+//         }
+//         if (0.2*(float)a_inrange > (float)b_inrange) return true;
+//         if ((float)a_inrange < 0.2*(float)*b_inrange) return false;
+//         return (a.dist < b.dist);
+//     }
+// }
+
 template<typename dist_t>
-class GraphHNSW : public AlgorithmInterface<dist_t> {
+class HNSWGDist : public AlgorithmInterface<dist_t> {
  public:
     static const tableint MAX_LABEL_OPERATION_LOCKS = 65536;
     static const unsigned char DELETE_MARK = 0x01;
@@ -75,12 +109,14 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
     // graph related
     GraphRelationSampler* graph_rel{nullptr};
     int graph_hopk;
+    int hnsw_hopk;
+    int *gdist;
 
-    GraphHNSW(SpaceInterface<dist_t> *s) {
+    HNSWGDist(SpaceInterface<dist_t> *s) {
     }
 
 
-    GraphHNSW(
+    HNSWGDist(
         SpaceInterface<dist_t> *s,
         const std::string &location,
         bool nmslib = false,
@@ -91,7 +127,7 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
     }
 
 
-    GraphHNSW(
+    HNSWGDist(
         SpaceInterface<dist_t> *s,
         size_t max_elements,
         size_t M = 16,
@@ -118,16 +154,13 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
         maxM0_ = M_ * 2;
         ef_construction_ = std::max(ef_construction, M_);
         ef_ = 10;
-
         level_generator_.seed(random_seed);
         update_probability_generator_.seed(random_seed + 1);
-
         size_links_level0_ = maxM0_ * sizeof(tableint) + sizeof(linklistsizeint);
         size_data_per_element_ = size_links_level0_ + data_size_ + sizeof(labeltype);
         offsetData_ = size_links_level0_;
         label_offset_ = size_links_level0_ + data_size_;
         offsetLevel0_ = 0;
-
         data_level0_memory_ = (char *) malloc(max_elements_ * size_data_per_element_);
         if (data_level0_memory_ == nullptr)
             throw std::runtime_error("Not enough memory");
@@ -142,14 +175,14 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
 
         linkLists_ = (char **) malloc(sizeof(void *) * max_elements_);
         if (linkLists_ == nullptr)
-            throw std::runtime_error("Not enough memory: GraphHNSW failed to allocate linklists");
+            throw std::runtime_error("Not enough memory: HNSWGDist failed to allocate linklists");
         size_links_per_element_ = maxM_ * sizeof(tableint) + sizeof(linklistsizeint);
         mult_ = 1 / log(1.0 * M_);
         revSize_ = 1.0 / mult_;
     }
 
 
-    ~GraphHNSW() {
+    ~HNSWGDist() {
         clear();
     }
 
@@ -167,18 +200,93 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
     }
 
     // NEW
-    void setGraphHop(GraphRelationSampler* grs, int k) {
+    void setGraphHop(GraphRelationSampler* grs, int k, int hk) {
         graph_rel = grs;
         graph_hopk = k;
+        hnsw_hopk = hk;
+    }
 
-        // size_t * ids = new size_t[max_elements_];
-        // for (size_t i = 0; i < max_elements_; i++) {
-        //     ids[i] = i;
-        // }
+    void setGDist() {
+        // init gdist
+        gdist = (int *) malloc(cur_element_count * sizeof(int) * (graph_hopk+1));
+        std::memset(gdist, 0, cur_element_count * sizeof(int) * (graph_hopk+1));
+        std::cout << "gdist size" << sizeof(gdist) << std::endl;
+        // use labeltype for graph; use tableint for hnsw
+        for (auto kv: label_lookup_){
+            labeltype oid = kv.first;
+            tableint iid = kv.second;
+            std::unordered_map<labeltype, int> graph_hops = graph_rel->getKHopNodesWiDist(oid, graph_hopk);
+            setSingleGDist(iid, graph_hops);
+        }
+        for (int i=0; i<graph_hopk+1; i++) {
+            std::cout << *(gdist+i) << " ";
+        }
+        std::cout << std::endl;
+        for (int i=0; i<graph_hopk+1; i++) {
+            std::cout << *(gdist+10*(graph_hopk+1)+i) << " ";
+        }
+        std::cout << std::endl;
+        for (int i=0; i<graph_hopk+1; i++) {
+            std::cout << *(gdist+100*(graph_hopk+1)+i) << " ";
+        }
+        std::cout << std::endl;
+        for (int i=0; i<graph_hopk+1; i++) {
+            std::cout << *(gdist+56*(graph_hopk+1)+i) << " ";
+        }
+        std::cout << std::endl;
+        for (int i=0; i<graph_hopk+1; i++) {
+            std::cout << *(gdist+700*(graph_hopk+1)+i) << " ";
+        }
+        std::cout << std::endl;
+        for (int i=0; i<graph_hopk+1; i++) {
+            std::cout << *(gdist+10008*(graph_hopk+1)+i) << " ";
+        }
+        std::cout << std::endl;
+    }
+
+    void setSingleGDist(tableint iid, std::unordered_map<labeltype, int>& ghops) {
         
-        // graph_rel->genRelation(ids, max_elements_);
+        std::unordered_set<tableint> visited;
+        std::unordered_set<tableint> current_level;
+        visited.insert(iid);
+        current_level.insert(iid);
 
-        // delete[] ids;
+        int * src_data = (int *) (gdist + iid * (graph_hopk+1));
+
+        for (int hop=0; hop<hnsw_hopk; hop ++) {
+            std::unordered_set<tableint> next_level;
+            for (const auto& node:current_level) {
+                unsigned int *data = (unsigned int *) get_linklist0(node);
+                int size = getListCount(data);
+                tableint *datal = (tableint *) (data + 1);
+                for (int i = 0; i < size; i++) {
+                    tableint cand = datal[i];
+                    if (cand < 0 || cand > max_elements_) 
+                        throw std::runtime_error("cand error in gdist");
+                    if (visited.find(cand) == visited.end()) {
+                        next_level.insert(cand);
+                        visited.insert(cand);
+                    }
+                }
+            }
+            // update src_data in gdist based on next_level
+            for (const auto& node: next_level) {
+                labeltype oid = getExternalLabel(node);
+                if (ghops.find(oid) == ghops.end()) {
+                    src_data[graph_hopk] ++;
+                }
+                else {
+                    src_data[ghops[oid]-1] ++; 
+                }
+            }
+            if (next_level.empty()) break;
+            current_level = std::move(next_level);
+        }
+
+        // calculate cumulative gdist
+        for (int i=1; i<graph_hopk; i++) {
+            *(src_data+i) += *(src_data+i-1);
+        }
     }
 
     struct CompareByFirst {
@@ -324,197 +432,6 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
     }
 
 
-    std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
-    searchBaseLayerLimit(
-        const void *data_point, 
-        labeltype query_label,
-        std::unordered_set<labeltype>& khop_nbr) {
-        // 返回的top candidates 应该是：
-        // 方案1:所有已经插入节点与khop-nbr的交集，需要按顺序返回
-        // 方案2: 使用已有框架，从q的邻居节点出发的1跳邻居，bfs方式按顺序返回
-        // 保持数量<=ef_construction_
-        // 获取一个合适的起始点
-        tableint ep_id = getEntryPointForKHop(data_point, query_label, khop_nbr);
-
-        VisitedList *vl = visited_list_pool_->getFreeVisitedList();
-        vl_type *visited_array = vl->mass;
-        vl_type visited_array_tag = vl->curV;
-    
-        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
-        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidateSet;
-    
-        dist_t lowerBound;
-        if (!isMarkedDeleted(ep_id) && khop_nbr.count(getExternalLabel(ep_id)) > 0) {
-            dist_t dist = fstdistfunc_(data_point, getDataByInternalId(ep_id), dist_func_param_);
-            top_candidates.emplace(dist, ep_id);
-            lowerBound = dist;
-            candidateSet.emplace(-dist, ep_id);
-        } else {
-            lowerBound = std::numeric_limits<dist_t>::max();
-            candidateSet.emplace(-lowerBound, ep_id);
-        }
-        visited_array[ep_id] = visited_array_tag;
-    
-        while (!candidateSet.empty()) {
-            std::pair<dist_t, tableint> curr_el_pair = candidateSet.top();
-            if ((-curr_el_pair.first) > lowerBound && top_candidates.size() == ef_construction_) {
-                break;
-            }
-            candidateSet.pop();
-    
-            tableint curNodeNum = curr_el_pair.second;
-    
-            std::unique_lock<std::mutex> lock(link_list_locks_[curNodeNum]);
-    
-            int *data = (int*)get_linklist0(curNodeNum); // 只在第 0 层搜索
-            size_t size = getListCount((linklistsizeint*)data);
-            tableint *datal = (tableint *) (data + 1);
-    
-            for (size_t j = 0; j < size; j++) {
-                tableint candidate_id = *(datal + j);
-                
-                // 检查候选点是否在k-hop邻居内
-                labeltype candidate_label = getExternalLabel(candidate_id);
-
-                // 不能直接跳过，加入到 candidateSet 中，但不在 top_candidates 中
-                // if (khop_nbr.count(candidate_label) == 0) continue;
-                
-                if (visited_array[candidate_id] == visited_array_tag) continue;
-                visited_array[candidate_id] = visited_array_tag;
-                
-                char *currObj1 = (getDataByInternalId(candidate_id));
-                dist_t dist1 = fstdistfunc_(data_point, currObj1, dist_func_param_);
-                
-                if (top_candidates.size() < ef_construction_ || lowerBound > dist1) {
-                    candidateSet.emplace(-dist1, candidate_id);
-                    
-                    if (!isMarkedDeleted(candidate_id) && khop_nbr.count(candidate_label) > 0)
-                        top_candidates.emplace(dist1, candidate_id);
-                    
-                    if (top_candidates.size() > ef_construction_)
-                        top_candidates.pop();
-                    
-                    if (!top_candidates.empty())
-                        lowerBound = top_candidates.top().first;
-                }
-            }
-        }
-        visited_list_pool_->releaseVisitedList(vl);
-    
-        return top_candidates;
-    }
-    
-    // 选择合适的入口点
-    tableint getEntryPointForKHop(const void *data_point, labeltype query_label, std::unordered_set<labeltype>& khop_nbr) {
-        tableint best_entry_point = 0;
-        dist_t min_distance = std::numeric_limits<dist_t>::max();
-        
-        std::unique_lock<std::mutex> lock(label_lookup_lock);
-        auto search = label_lookup_.find(query_label);
-
-        // 如果已经在索引中（搜索时）
-        if (search != label_lookup_.end()) {
-            lock.unlock();
-            
-             // 直接使用查询点的邻居作为入口点
-            linklistsizeint *ll_cur = get_linklist0(search->second);
-            int size = getListCount(ll_cur);
-            tableint *data = (tableint *) (ll_cur + 1);
-            
-            if (size > 0) {
-                // 找到查询点的邻居中距离最近的一个作为入口点
-                tableint best_entry_point = -1;
-                dist_t min_distance = std::numeric_limits<dist_t>::max();
-                
-                for (int j = 0; j < size; j++) {
-                    tableint neighbor_id = data[j];
-                    
-                    // 确认邻居在k-hop范围内
-                    labeltype neighbor_label = getExternalLabel(neighbor_id);
-                    if (khop_nbr.count(neighbor_label) == 0) continue;
-                    
-                    // 计算邻居与查询点的距离
-                    dist_t dist = fstdistfunc_(data_point, getDataByInternalId(neighbor_id), dist_func_param_);
-                    
-                    if (dist < min_distance) {
-                        min_distance = dist;
-                        best_entry_point = neighbor_id;
-                    }
-                }
-                
-                // 如果找到合适的入口点，直接返回
-                if (best_entry_point != -1) {
-                    return best_entry_point;
-                }
-            }
-        }
-        else {
-            lock.unlock();
-            
-            // 如果查询点不在索引中（构建时）
-            size_t num_elements = cur_element_count;
-            if (num_elements < khop_nbr.size()) {  // 当已索引点数量小于k-hop邻居数量时
-                // 遍历所有已索引点更高效
-                for (tableint i = 0; i < num_elements; i++) {
-                    if (!isMarkedDeleted(i)) {
-                        labeltype candidate_label = getExternalLabel(i);
-                        if (khop_nbr.count(candidate_label) > 0) {
-                            return i;  // 找到第一个合适的入口点
-                        }
-                    }
-                }
-            } else {  // 当k-hop邻居数量小于已索引点数量时
-                // 遍历k-hop邻居更高效
-                std::unique_lock<std::mutex> lock(label_lookup_lock);
-                for (const auto& nbr_label : khop_nbr) {
-                    auto search = label_lookup_.find(nbr_label);
-                    if (search != label_lookup_.end() && !isMarkedDeleted(search->second)) {
-                        return search->second;  // 找到第一个合适的入口点
-                    }
-                }
-            }
-        }
-        
-        return best_entry_point;
-    }
-    std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
-    searchLayerLimitForBuildV1(
-        const void *data_point, 
-        labeltype query_label,
-        std::unordered_set<labeltype>& khop_nbr) {
-        // 返回的top candidates 应该是：
-        // >>> 方案1:所有已经插入节点与khop-nbr的交集，需要按顺序返回
-        // 方案2: 使用已有框架，从q的邻居节点出发的1跳邻居，仍需要判断是否在邻居内
-        // 保持数量<=ef_construction_
-        // 值得注意的是，这个函数仅适用于构建阶段，因为在查找阶段我们完全不需要基于khop再进行过滤
-        
-        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> res;
-
-        size_t num_elements = cur_element_count;
-        if (num_elements < khop_nbr.size()) {
-            for (tableint i = 0; i<num_elements; i++) {
-                if (!isMarkedDeleted(i)) {
-                    labeltype candidate_label = getExternalLabel(i);
-                    if (khop_nbr.count(candidate_label) > 0) {
-                        dist_t dist = fstdistfunc_(data_point, getDataByInternalId(i), dist_func_param_);
-                        res.emplace(dist, i);
-                    }
-                }
-            }
-        }
-        else {
-            std::unique_lock<std::mutex> lock(label_lookup_lock);
-            for (const auto& nbr_label: khop_nbr) {
-                auto search = label_lookup_.find(nbr_label);
-                if (search != label_lookup_.end() && ! isMarkedDeleted(search->second)) {
-                    dist_t dist = fstdistfunc_(data_point, getDataByInternalId(search->second), dist_func_param_);
-                    res.emplace(dist, search -> second);
-                }
-            }
-        }
-        return res;
-    }
-    
     // bare_bone_search means there is no check for deletions and stop condition is ignored in return of extra performance
     template <bool bare_bone_search = true, bool collect_metrics = false>
     std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
@@ -648,6 +565,265 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
         visited_list_pool_->releaseVisitedList(vl);
         return top_candidates;
     }
+
+    // bare_bone_search means there is no check for deletions and stop condition is ignored in return of extra performance
+    template <bool bare_bone_search = true, bool collect_metrics = false>
+    std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
+    searchBaseLayerGDist(
+        tableint ep_id,
+        const void *data_point,
+        size_t ef,
+        std::unordered_map<labeltype, int>& ghops,
+        BaseFilterFunctor* isIdAllowed = nullptr,
+        BaseSearchStopCondition<dist_t>* stop_condition = nullptr) const {
+        // a simple solution:
+        // top_candidates still stores the results based on distance;
+        // candidate_set stores results and filters the candidates based on gdist
+        
+        VisitedList *vl = visited_list_pool_->getFreeVisitedList();
+        vl_type *visited_array = vl->mass;
+        vl_type visited_array_tag = vl->curV;
+
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidate_set;
+
+        dist_t lowerBound;
+        if (bare_bone_search || 
+            (!isMarkedDeleted(ep_id) && ((!isIdAllowed) || (*isIdAllowed)(getExternalLabel(ep_id))))) {
+            char* ep_data = getDataByInternalId(ep_id);
+            dist_t dist = fstdistfunc_(data_point, ep_data, dist_func_param_);
+            lowerBound = dist;
+            top_candidates.emplace(dist, ep_id);
+            if (!bare_bone_search && stop_condition) {
+                stop_condition->add_point_to_result(getExternalLabel(ep_id), ep_data, dist);
+            }
+            candidate_set.emplace(-dist, ep_id);
+        } else {
+            lowerBound = std::numeric_limits<dist_t>::max();
+            candidate_set.emplace(-lowerBound, ep_id);
+        }
+
+        visited_array[ep_id] = visited_array_tag;
+
+        while (!candidate_set.empty()) {
+            std::pair<dist_t, tableint> current_node_pair = candidate_set.top();
+            dist_t candidate_dist = -current_node_pair.first;
+
+            bool flag_stop_search;
+            if (bare_bone_search) {
+                flag_stop_search = candidate_dist > lowerBound;
+            } else {
+                if (stop_condition) {
+                    flag_stop_search = stop_condition->should_stop_search(candidate_dist, lowerBound);
+                } else {
+                    flag_stop_search = candidate_dist > lowerBound && top_candidates.size() == ef;
+                }
+            }
+            if (flag_stop_search) {
+                break;
+            }
+            candidate_set.pop();
+
+            tableint current_node_id = current_node_pair.second;
+
+            int *data = (int *) get_linklist0(current_node_id);
+            size_t size = getListCount((linklistsizeint*)data);
+//                bool cur_node_deleted = isMarkedDeleted(current_node_id);
+            if (collect_metrics) {
+                metric_hops++;
+                metric_distance_computations+=size;
+            }
+
+            for (size_t j = 1; j <= size; j++) {
+                int candidate_id = *(data + j);
+//                    if (candidate_id == 0) continue;
+
+                if (!(visited_array[candidate_id] == visited_array_tag)) {
+                    visited_array[candidate_id] = visited_array_tag;
+
+                    // (1) if *in k-hop* of source node
+                    //     judge the number of (k-i)-hop nodes
+                    labeltype cand_oid = getExternalLabel(candidate_id);
+
+                    if (ghops.find(cand_oid)!=ghops.end()){
+                        int cand_hop_to_src = ghops[cand_oid];
+                        int cand_in_hnsw = *(gdist+cand_oid*(graph_hopk+1)+(graph_hopk-cand_hop_to_src)-1);
+                        int total_in_hnsw = *(gdist+cand_oid*(graph_hopk+1)+graph_hopk-1) + *(gdist+cand_oid*(graph_hopk+1)+graph_hopk);
+                        if ((float)cand_in_hnsw/(cand_in_hnsw+total_in_hnsw)<0.005)continue;
+                    }
+                    
+
+                    char *currObj1 = (getDataByInternalId(candidate_id));
+                    dist_t dist = fstdistfunc_(data_point, currObj1, dist_func_param_);
+
+                    bool flag_consider_candidate;
+                    if (!bare_bone_search && stop_condition) {
+                        flag_consider_candidate = stop_condition->should_consider_candidate(dist, lowerBound);
+                    } else {
+                        flag_consider_candidate = top_candidates.size() < ef || lowerBound > dist;
+                    }
+
+                    if (flag_consider_candidate) {
+                        candidate_set.emplace(-dist, candidate_id);
+
+                        if (bare_bone_search || 
+                            (!isMarkedDeleted(candidate_id) && ((!isIdAllowed) || (*isIdAllowed)(getExternalLabel(candidate_id))))) {
+                            top_candidates.emplace(dist, candidate_id);
+                            if (!bare_bone_search && stop_condition) {
+                                stop_condition->add_point_to_result(getExternalLabel(candidate_id), currObj1, dist);
+                            }
+                        }
+
+                        bool flag_remove_extra = false;
+                        if (!bare_bone_search && stop_condition) {
+                            flag_remove_extra = stop_condition->should_remove_extra();
+                        } else {
+                            flag_remove_extra = top_candidates.size() > ef;
+                        }
+                        while (flag_remove_extra) {
+                            tableint id = top_candidates.top().second;
+                            top_candidates.pop();
+                            if (!bare_bone_search && stop_condition) {
+                                stop_condition->remove_point_from_result(getExternalLabel(id), getDataByInternalId(id), dist);
+                                flag_remove_extra = stop_condition->should_remove_extra();
+                            } else {
+                                flag_remove_extra = top_candidates.size() > ef;
+                            }
+                        }
+
+                        if (!top_candidates.empty())
+                            lowerBound = top_candidates.top().first;
+                    }
+                }
+            }
+        }
+
+        visited_list_pool_->releaseVisitedList(vl);
+        return top_candidates;
+    }
+
+//     // bare_bone_search means there is no check for deletions and stop condition is ignored in return of extra performance
+//     template <bool bare_bone_search = true, bool collect_metrics = false>
+//     std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
+//     searchBaseLayerDistDup(
+//         tableint ep_id,
+//         const void *data_point,
+//         size_t ef,
+//         unordered_map<labeltype, int>& ghops,
+//         BaseFilterFunctor* isIdAllowed = nullptr,
+//         BaseSearchStopCondition<dist_t>* stop_condition = nullptr) const {
+        
+//         // a more compex solution - to be fixed
+
+//         VisitedList *vl = visited_list_pool_->getFreeVisitedList();
+//         vl_type *visited_array = vl->mass;
+//         vl_type visited_array_tag = vl->curV;
+
+//         std::priority_queue<GDistEle, std::vector<GDistEle>, CompareByFirst> top_candidates;
+//         std::priority_queue<GDistEle, std::vector<GDistEle>, CompareByFirst> candidate_set;
+
+//         dist_t lowerBound;
+//         if (bare_bone_search || 
+//             (!isMarkedDeleted(ep_id) && ((!isIdAllowed) || (*isIdAllowed)(getExternalLabel(ep_id))))) {
+//             char* ep_data = getDataByInternalId(ep_id);
+//             dist_t dist = fstdistfunc_(data_point, ep_data, dist_func_param_);
+//             lowerBound = dist;
+//             GDistEle gde = {0, dist, (gdist+ep_id*(graph_hopk+1)), ep_id};
+//             top_candidates.emplace(GDistEle);
+//             if (!bare_bone_search && stop_condition) {
+//                 stop_condition->add_point_to_result(getExternalLabel(ep_id), ep_data, dist);
+//             }
+//             GDistEle gdec = {0, -dist, }
+//             candidate_set.emplace(-dist, ep_id);
+//         } else {
+//             lowerBound = std::numeric_limits<dist_t>::max();
+//             candidate_set.emplace(-lowerBound, ep_id);
+//         }
+
+//         visited_array[ep_id] = visited_array_tag;
+
+//         while (!candidate_set.empty()) {
+//             std::pair<dist_t, tableint> current_node_pair = candidate_set.top();
+//             dist_t candidate_dist = -current_node_pair.first;
+
+//             bool flag_stop_search;
+//             if (bare_bone_search) {
+//                 flag_stop_search = candidate_dist > lowerBound;
+//             } else {
+//                 if (stop_condition) {
+//                     flag_stop_search = stop_condition->should_stop_search(candidate_dist, lowerBound);
+//                 } else {
+//                     flag_stop_search = candidate_dist > lowerBound && top_candidates.size() == ef;
+//                 }
+//             }
+//             if (flag_stop_search) {
+//                 break;
+//             }
+//             candidate_set.pop();
+
+//             tableint current_node_id = current_node_pair.second;
+//             int *data = (int *) get_linklist0(current_node_id);
+//             size_t size = getListCount((linklistsizeint*)data);
+// //                bool cur_node_deleted = isMarkedDeleted(current_node_id);
+//             if (collect_metrics) {
+//                 metric_hops++;
+//                 metric_distance_computations+=size;
+//             }
+
+//             for (size_t j = 1; j <= size; j++) {
+//                 int candidate_id = *(data + j);
+
+//                 if (!(visited_array[candidate_id] == visited_array_tag)) {
+//                     visited_array[candidate_id] = visited_array_tag;
+
+//                     char *currObj1 = (getDataByInternalId(candidate_id));
+//                     dist_t dist = fstdistfunc_(data_point, currObj1, dist_func_param_);
+
+//                     bool flag_consider_candidate;
+//                     if (!bare_bone_search && stop_condition) {
+//                         flag_consider_candidate = stop_condition->should_consider_candidate(dist, lowerBound);
+//                     } else {
+//                         flag_consider_candidate = top_candidates.size() < ef || lowerBound > dist;
+//                     }
+
+//                     if (flag_consider_candidate) {
+//                         candidate_set.emplace(-dist, candidate_id);
+
+//                         if (bare_bone_search || 
+//                             (!isMarkedDeleted(candidate_id) && ((!isIdAllowed) || (*isIdAllowed)(getExternalLabel(candidate_id))))) {
+//                             top_candidates.emplace(dist, candidate_id);
+//                             if (!bare_bone_search && stop_condition) {
+//                                 stop_condition->add_point_to_result(getExternalLabel(candidate_id), currObj1, dist);
+//                             }
+//                         }
+
+//                         bool flag_remove_extra = false;
+//                         if (!bare_bone_search && stop_condition) {
+//                             flag_remove_extra = stop_condition->should_remove_extra();
+//                         } else {
+//                             flag_remove_extra = top_candidates.size() > ef;
+//                         }
+//                         while (flag_remove_extra) {
+//                             tableint id = top_candidates.top().second;
+//                             top_candidates.pop();
+//                             if (!bare_bone_search && stop_condition) {
+//                                 stop_condition->remove_point_from_result(getExternalLabel(id), getDataByInternalId(id), dist);
+//                                 flag_remove_extra = stop_condition->should_remove_extra();
+//                             } else {
+//                                 flag_remove_extra = top_candidates.size() > ef;
+//                             }
+//                         }
+
+//                         if (!top_candidates.empty())
+//                             lowerBound = top_candidates.top().first;
+//                     }
+//                 }
+//             }
+//         }
+
+//         visited_list_pool_->releaseVisitedList(vl);
+//         return top_candidates;
+//     }
 
 
     void getNeighborsByHeuristic2(
@@ -1202,165 +1378,6 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
     }
 
 
-    void addPointLimit(const void *data_point, labeltype label, bool replace_deleted = false) {
-        if ((allow_replace_deleted_ == false) && (replace_deleted == true)) {
-            throw std::runtime_error("Replacement of deleted elements is disabled in constructor");
-        }
-
-        std::unordered_set<labeltype> khop_nbr = graph_rel->getKHopNodes(label, graph_hopk);
-
-        // lock all operations with element by label
-        std::unique_lock <std::mutex> lock_label(getLabelOpMutex(label));
-        if (!replace_deleted) {
-            // addPoint(data_point, label, -1);
-            addPointLimit(data_point, label, khop_nbr);
-            return;
-        }
-
-        // check if there is vacant place
-        tableint internal_id_replaced;
-        std::unique_lock <std::mutex> lock_deleted_elements(deleted_elements_lock);
-        bool is_vacant_place = !deleted_elements.empty();
-        if (is_vacant_place) {
-            internal_id_replaced = *deleted_elements.begin();
-            deleted_elements.erase(internal_id_replaced);
-        }
-        lock_deleted_elements.unlock();
-
-        // if there is no vacant place then add or update point
-        // else add point to vacant place
-        if (!is_vacant_place) {
-            // addPoint(data_point, label, -1);
-            addPointLimit(data_point, label, khop_nbr);
-        } else {
-            // we assume that there are no concurrent operations on deleted element
-            labeltype label_replaced = getExternalLabel(internal_id_replaced);
-            setExternalLabel(internal_id_replaced, label);
-
-            std::unique_lock <std::mutex> lock_table(label_lookup_lock);
-            label_lookup_.erase(label_replaced);
-            label_lookup_[label] = internal_id_replaced;
-            lock_table.unlock();
-
-            unmarkDeletedInternal(internal_id_replaced);
-            updatePoint(data_point, internal_id_replaced, 1.0);
-        }
-    }
-
-    
-    tableint addPointLimit(const void *data_point, labeltype label, std::unordered_set<labeltype> khop_nbr) {
-        tableint cur_c = 0;
-        {
-            // Checking if the element with the same label already exists
-            // if so, updating it *instead* of creating a new element.
-            std::unique_lock <std::mutex> lock_table(label_lookup_lock);
-            auto search = label_lookup_.find(label);
-            if (search != label_lookup_.end()) {
-                tableint existingInternalId = search->second;
-                if (allow_replace_deleted_) {
-                    if (isMarkedDeleted(existingInternalId)) {
-                        throw std::runtime_error("Can't use addPoint to update deleted elements if replacement of deleted elements is enabled.");
-                    }
-                }
-                lock_table.unlock();
-
-                if (isMarkedDeleted(existingInternalId)) {
-                    unmarkDeletedInternal(existingInternalId);
-                }
-
-                // 暂不考虑更新过程中对约束的违反
-                updatePoint(data_point, existingInternalId, 1.0);
-
-                return existingInternalId;
-            }
-
-            if (cur_element_count >= max_elements_) {
-                throw std::runtime_error("The number of elements exceeds the specified limit");
-            }
-
-            cur_c = cur_element_count;
-            cur_element_count++;
-            label_lookup_[label] = cur_c;
-        }
-
-        // 初始化新节点的内存和属性
-        std::unique_lock <std::mutex> lock_el(link_list_locks_[cur_c]);
-        int curlevel = 0;
-        element_levels_[cur_c] = curlevel;
-
-        // 设置索引的最大层级为0
-        std::unique_lock <std::mutex> templock(global);
-        if (maxlevel_ < 0) maxlevel_ = 0;  // 确保最大层级至少为0
-        templock.unlock();
-
-        tableint currObj = enterpoint_node_;
-        tableint enterpoint_copy = enterpoint_node_;
-
-        memset(data_level0_memory_ + cur_c * size_data_per_element_ + offsetLevel0_, 0, size_data_per_element_);
-
-        // Initialisation of the data and label
-        memcpy(getExternalLabeLp(cur_c), &label, sizeof(labeltype));
-        memcpy(getDataByInternalId(cur_c), data_point, data_size_);
-
-        // if (curlevel) {
-        //     linkLists_[cur_c] = (char *) malloc(size_links_per_element_ * curlevel + 1);
-        //     if (linkLists_[cur_c] == nullptr)
-        //         throw std::runtime_error("Not enough memory: addPoint failed to allocate linklist");
-        //     memset(linkLists_[cur_c], 0, size_links_per_element_ * curlevel + 1);
-        // }
-
-        if ((signed)currObj != -1) {
-            std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates = 
-                searchLayerLimitForBuildV1(data_point, label, khop_nbr);
-                // searchBaseLayerLimit(data_point, label, khop_nbr);
-
-            // // 搜索kHop中最近的一些候选节点
-            // std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
-            
-            // // 遍历所有k-hop邻居，找出最近的ef_construction_个邻居
-            // for (auto& nbr_label : khop_nbr) {
-            //     // 跳过自身
-            //     if (nbr_label == label) continue;
-                
-            //     // 获取邻居的内部ID
-            //     std::unique_lock<std::mutex> lock(label_lookup_lock);
-            //     auto search = label_lookup_.find(nbr_label);
-            //     if (search == label_lookup_.end()) continue; // 邻居可能尚未添加
-            //     tableint nbr_id = search->second;
-            //     lock.unlock();
-                
-            //     // 跳过已删除的节点
-            //     if (isMarkedDeleted(nbr_id)) continue;
-                
-            //     // 计算距离
-            //     dist_t dist = fstdistfunc_(data_point, getDataByInternalId(nbr_id), dist_func_param_);
-                
-            //     // 加入候选集
-            //     if (top_candidates.size() < ef_construction_) {
-            //         top_candidates.emplace(dist, nbr_id);
-            //     } else if (dist < top_candidates.top().first) {
-            //         top_candidates.pop();
-            //         top_candidates.emplace(dist, nbr_id);
-            //     }
-            // }
-
-            // 启发式筛选并建立连接
-            mutuallyConnectNewElement(data_point, cur_c, top_candidates, 0, false);
-        } else {
-            // Do nothing for the first element
-            enterpoint_node_ = 0;
-            maxlevel_ = 0;
-        }
-
-        // // Releasing lock for the maximum level
-        // if (curlevel > maxlevelcopy) {
-        //     enterpoint_node_ = cur_c;
-        //     maxlevel_ = curlevel;
-        // }
-        return cur_c;
-    }
-
-
     void updatePoint(const void *dataPoint, tableint internalId, float updateNeighborProbability) {
         // update the feature vector associated with existing point with new vector
         memcpy(getDataByInternalId(internalId), dataPoint, data_size_);
@@ -1635,7 +1652,6 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
         return cur_c;
     }
 
-
     std::priority_queue<std::pair<dist_t, labeltype >>
     searchKnn(const void *query_data, size_t k, BaseFilterFunctor* isIdAllowed = nullptr) const {
         std::priority_queue<std::pair<dist_t, labeltype >> result;
@@ -1692,122 +1708,59 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
         return result;
     }
 
-    std::priority_queue<std::pair<dist_t, labeltype>>
-    searchKnnLimit(size_t k, labeltype query_label) const {
-        std::priority_queue<std::pair<dist_t, labeltype>> result;
+    std::priority_queue<std::pair<dist_t, labeltype >>
+    searchKnnGDist(const void *query_data, size_t k, std::unordered_map<labeltype, int>& ghops, BaseFilterFunctor* isIdAllowed = nullptr) const {
+        std::priority_queue<std::pair<dist_t, labeltype >> result;
         if (cur_element_count == 0) return result;
-    
-        // // 获取查询点的k-hop邻居
-        // std::unordered_set<labeltype> khop_nbr = graph_rel->getKHopNodes(query_label, graph_hopk);
-        
-        // // 直接使用searchBaseLayerLimit在k-hop邻居中搜索
-        // std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates = 
-            // const_cast<GraphHNSW*>(this)->searchBaseLayerLimit(query_data, query_label, khop_nbr);
 
-        
+        tableint currObj = enterpoint_node_;
+        dist_t curdist = fstdistfunc_(query_data, getDataByInternalId(enterpoint_node_), dist_func_param_);
+
+        for (int level = maxlevel_; level > 0; level--) {
+            bool changed = true;
+            while (changed) {
+                changed = false;
+                unsigned int *data;
+
+                data = (unsigned int *) get_linklist(currObj, level);
+                int size = getListCount(data);
+                metric_hops++;
+                metric_distance_computations+=size;
+
+                tableint *datal = (tableint *) (data + 1);
+                for (int i = 0; i < size; i++) {
+                    tableint cand = datal[i];
+                    if (cand < 0 || cand > max_elements_)
+                        throw std::runtime_error("cand error");
+                    dist_t d = fstdistfunc_(query_data, getDataByInternalId(cand), dist_func_param_);
+
+                    if (d < curdist) {
+                        curdist = d;
+                        currObj = cand;
+                        changed = true;
+                    }
+                }
+            }
+        }
+
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
-
-        std::unique_lock<std::mutex> lock(label_lookup_lock);
-        auto search = label_lookup_.find(query_label);
-        if (search == label_lookup_.end()) {
-            throw std::runtime_error("Label not found");
+        bool bare_bone_search = !num_deleted_ && !isIdAllowed;
+        if (bare_bone_search) {
+            top_candidates = searchBaseLayerGDist<true>(
+                    currObj, query_data, std::max(ef_, k), ghops, isIdAllowed);
+        } else {
+            top_candidates = searchBaseLayerGDist<false>(
+                    currObj, query_data, std::max(ef_, k), ghops, isIdAllowed);
         }
-        tableint curNodeNum = search->second;
-        char *data_point = (getDataByInternalId(curNodeNum));
-        lock.unlock();
 
-        // std::unique_lock<std::mutex> lock(link_list_locks_[curNodeNum]);
-    
-        int *data = (int*)get_linklist0(curNodeNum); // 只在第 0 层搜索
-        size_t size = getListCount((linklistsizeint*)data);
-        tableint *datal = (tableint *) (data + 1);
-
-        for (size_t j = 0; j < size; j++) {
-            tableint candidate_id = *(datal + j);
-            
-            char *currObj1 = (getDataByInternalId(candidate_id));
-            dist_t dist1 = fstdistfunc_(data_point, currObj1, dist_func_param_);
-            top_candidates.emplace(dist1, candidate_id);
+        while (top_candidates.size() > k) {
+            top_candidates.pop();
         }
-        
-        // 将搜索结果转换为最终格式
-        while (!top_candidates.empty()) {
+        while (top_candidates.size() > 0) {
             std::pair<dist_t, tableint> rez = top_candidates.top();
             result.push(std::pair<dist_t, labeltype>(rez.first, getExternalLabel(rez.second)));
             top_candidates.pop();
         }
-    
-        return result;
-    }
-
-    std::priority_queue<std::pair<dist_t, labeltype>>
-    searchKnnLimitMultiquery(size_t k, labeltype src_label, std::unordered_set<labeltype>& query_labels, 
-        std::priority_queue<std::pair<dist_t, labeltype>>& result) const {
-            // 暂时不使用visited_list, 后续完善
-            // 需要调研visited list怎么用
-            // , VisitedList* vl
-        if (cur_element_count == 0) return result;
-        
-        // // 获取查询点的k-hop邻居
-        // std::unordered_set<labeltype> khop_nbr = graph_rel->getKHopNodes(query_label, graph_hopk);
-        
-        // // 直接使用searchBaseLayerLimit在k-hop邻居中搜索
-        // std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates = 
-            // const_cast<GraphHNSW*>(this)->searchBaseLayerLimit(query_data, query_label, khop_nbr);
-
-        
-        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
-        std::vector<tableint> nodeidx_list(query_labels.size());
-
-        std::unique_lock<std::mutex> lock(label_lookup_lock);
-        int query_idx = 0;
-        for (auto query_label: query_labels) {
-            auto search = label_lookup_.find(query_label);
-            if (search == label_lookup_.end()) {
-                throw std::runtime_error("Label not found");
-            }
-            nodeidx_list[query_idx] = search->second;
-            // data_points[query_idx] = (getDataByInternalId(curNodeNum));
-            query_idx ++;
-        }
-
-        auto src_search = label_lookup_.find(src_label);
-        tableint srcNodeNum = src_search->second;
-        auto src_datapoint = (getDataByInternalId(srcNodeNum));
-        lock.unlock();
-
-        // std::unique_lock<std::mutex> lock(link_list_locks_[curNodeNum]);
-        query_idx = 0;
-        for (auto node: nodeidx_list) {
-            tableint curNodeNum = nodeidx_list[query_idx];
-            int *data = (int*)get_linklist0(curNodeNum); // 只在第 0 层搜索
-            size_t size = getListCount((linklistsizeint*)data);
-            tableint *datal = (tableint *) (data + 1);
-
-            for (size_t j = 0; j < size; j++) {
-                tableint candidate_id = *(datal + j);
-                
-                if (query_labels.count(candidate_id) > 0) continue;
-                // if (visited_array[candidate_id] == visited_tag) continue;
-                // visited_array[candidate_id] = visited_array_tag;
-
-                char *currObj1 = (getDataByInternalId(candidate_id));
-                dist_t dist1 = fstdistfunc_(src_datapoint, currObj1, dist_func_param_);
-                result.emplace(dist1, getExternalLabel(candidate_id));
-                // if need only k results, change here
-                
-                query_labels.insert(candidate_id);
-            }
-        
-        // // 将搜索结果转换为最终格式
-        // while (!top_candidates.empty()) {
-        //     std::pair<dist_t, tableint> rez = top_candidates.top();
-        //     result.push(std::pair<dist_t, labeltype>(rez.first, getExternalLabel(rez.second)));
-        //     top_candidates.pop();
-        // }
-            query_idx ++;
-        }
-    
         return result;
     }
 

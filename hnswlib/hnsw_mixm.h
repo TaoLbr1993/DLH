@@ -2,7 +2,6 @@
 
 #include "visited_list_pool.h"
 #include "hnswlib.h"
-#include "graph_gen.h"
 #include <atomic>
 #include <random>
 #include <stdlib.h>
@@ -16,7 +15,7 @@ typedef unsigned int tableint;
 typedef unsigned int linklistsizeint;
 
 template<typename dist_t>
-class GraphHNSW : public AlgorithmInterface<dist_t> {
+class HNSWMixM : public AlgorithmInterface<dist_t> {
  public:
     static const tableint MAX_LABEL_OPERATION_LOCKS = 65536;
     static const unsigned char DELETE_MARK = 0x01;
@@ -72,15 +71,18 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
     std::unordered_set<tableint> deleted_elements;  // contains internal ids of deleted elements
 
     // NEW
-    // graph related
     GraphRelationSampler* graph_rel{nullptr};
     int graph_hopk;
+    float nbr_rat_;
 
-    GraphHNSW(SpaceInterface<dist_t> *s) {
+    size_t vdim;
+    std::unordered_set<labeltype> inserted_labels;
+
+    HNSWMixM(SpaceInterface<dist_t> *s) {
     }
 
 
-    GraphHNSW(
+    HNSWMixM(
         SpaceInterface<dist_t> *s,
         const std::string &location,
         bool nmslib = false,
@@ -91,7 +93,7 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
     }
 
 
-    GraphHNSW(
+    HNSWMixM(
         SpaceInterface<dist_t> *s,
         size_t max_elements,
         size_t M = 16,
@@ -142,14 +144,14 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
 
         linkLists_ = (char **) malloc(sizeof(void *) * max_elements_);
         if (linkLists_ == nullptr)
-            throw std::runtime_error("Not enough memory: GraphHNSW failed to allocate linklists");
+            throw std::runtime_error("Not enough memory: HNSWMixM failed to allocate linklists");
         size_links_per_element_ = maxM_ * sizeof(tableint) + sizeof(linklistsizeint);
         mult_ = 1 / log(1.0 * M_);
         revSize_ = 1.0 / mult_;
     }
 
 
-    ~GraphHNSW() {
+    ~HNSWMixM() {
         clear();
     }
 
@@ -166,19 +168,15 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
         visited_list_pool_.reset(nullptr);
     }
 
-    // NEW
-    void setGraphHop(GraphRelationSampler* grs, int k) {
+    void setGraphHop(GraphRelationSampler* grs, int k, float nbr_rat) {
         graph_rel = grs;
         graph_hopk = k;
+        vdim = *((size_t *) dist_func_param_);
+        nbr_rat_ = nbr_rat;
+    }
 
-        // size_t * ids = new size_t[max_elements_];
-        // for (size_t i = 0; i < max_elements_; i++) {
-        //     ids[i] = i;
-        // }
-        
-        // graph_rel->genRelation(ids, max_elements_);
+    void MixM() {
 
-        // delete[] ids;
     }
 
     struct CompareByFirst {
@@ -282,20 +280,10 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
             }
             size_t size = getListCount((linklistsizeint*)data);
             tableint *datal = (tableint *) (data + 1);
-#ifdef USE_SSE
-            _mm_prefetch((char *) (visited_array + *(data + 1)), _MM_HINT_T0);
-            _mm_prefetch((char *) (visited_array + *(data + 1) + 64), _MM_HINT_T0);
-            _mm_prefetch(getDataByInternalId(*datal), _MM_HINT_T0);
-            _mm_prefetch(getDataByInternalId(*(datal + 1)), _MM_HINT_T0);
-#endif
 
             for (size_t j = 0; j < size; j++) {
                 tableint candidate_id = *(datal + j);
 //                    if (candidate_id == 0) continue;
-#ifdef USE_SSE
-                _mm_prefetch((char *) (visited_array + *(datal + j + 1)), _MM_HINT_T0);
-                _mm_prefetch(getDataByInternalId(*(datal + j + 1)), _MM_HINT_T0);
-#endif
                 if (visited_array[candidate_id] == visited_array_tag) continue;
                 visited_array[candidate_id] = visited_array_tag;
                 char *currObj1 = (getDataByInternalId(candidate_id));
@@ -303,9 +291,6 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
                 dist_t dist1 = fstdistfunc_(data_point, currObj1, dist_func_param_);
                 if (top_candidates.size() < ef_construction_ || lowerBound > dist1) {
                     candidateSet.emplace(-dist1, candidate_id);
-#ifdef USE_SSE
-                    _mm_prefetch(getDataByInternalId(candidateSet.top().second), _MM_HINT_T0);
-#endif
 
                     if (!isMarkedDeleted(candidate_id))
                         top_candidates.emplace(dist1, candidate_id);
@@ -324,197 +309,6 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
     }
 
 
-    std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
-    searchBaseLayerLimit(
-        const void *data_point, 
-        labeltype query_label,
-        std::unordered_set<labeltype>& khop_nbr) {
-        // 返回的top candidates 应该是：
-        // 方案1:所有已经插入节点与khop-nbr的交集，需要按顺序返回
-        // 方案2: 使用已有框架，从q的邻居节点出发的1跳邻居，bfs方式按顺序返回
-        // 保持数量<=ef_construction_
-        // 获取一个合适的起始点
-        tableint ep_id = getEntryPointForKHop(data_point, query_label, khop_nbr);
-
-        VisitedList *vl = visited_list_pool_->getFreeVisitedList();
-        vl_type *visited_array = vl->mass;
-        vl_type visited_array_tag = vl->curV;
-    
-        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
-        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidateSet;
-    
-        dist_t lowerBound;
-        if (!isMarkedDeleted(ep_id) && khop_nbr.count(getExternalLabel(ep_id)) > 0) {
-            dist_t dist = fstdistfunc_(data_point, getDataByInternalId(ep_id), dist_func_param_);
-            top_candidates.emplace(dist, ep_id);
-            lowerBound = dist;
-            candidateSet.emplace(-dist, ep_id);
-        } else {
-            lowerBound = std::numeric_limits<dist_t>::max();
-            candidateSet.emplace(-lowerBound, ep_id);
-        }
-        visited_array[ep_id] = visited_array_tag;
-    
-        while (!candidateSet.empty()) {
-            std::pair<dist_t, tableint> curr_el_pair = candidateSet.top();
-            if ((-curr_el_pair.first) > lowerBound && top_candidates.size() == ef_construction_) {
-                break;
-            }
-            candidateSet.pop();
-    
-            tableint curNodeNum = curr_el_pair.second;
-    
-            std::unique_lock<std::mutex> lock(link_list_locks_[curNodeNum]);
-    
-            int *data = (int*)get_linklist0(curNodeNum); // 只在第 0 层搜索
-            size_t size = getListCount((linklistsizeint*)data);
-            tableint *datal = (tableint *) (data + 1);
-    
-            for (size_t j = 0; j < size; j++) {
-                tableint candidate_id = *(datal + j);
-                
-                // 检查候选点是否在k-hop邻居内
-                labeltype candidate_label = getExternalLabel(candidate_id);
-
-                // 不能直接跳过，加入到 candidateSet 中，但不在 top_candidates 中
-                // if (khop_nbr.count(candidate_label) == 0) continue;
-                
-                if (visited_array[candidate_id] == visited_array_tag) continue;
-                visited_array[candidate_id] = visited_array_tag;
-                
-                char *currObj1 = (getDataByInternalId(candidate_id));
-                dist_t dist1 = fstdistfunc_(data_point, currObj1, dist_func_param_);
-                
-                if (top_candidates.size() < ef_construction_ || lowerBound > dist1) {
-                    candidateSet.emplace(-dist1, candidate_id);
-                    
-                    if (!isMarkedDeleted(candidate_id) && khop_nbr.count(candidate_label) > 0)
-                        top_candidates.emplace(dist1, candidate_id);
-                    
-                    if (top_candidates.size() > ef_construction_)
-                        top_candidates.pop();
-                    
-                    if (!top_candidates.empty())
-                        lowerBound = top_candidates.top().first;
-                }
-            }
-        }
-        visited_list_pool_->releaseVisitedList(vl);
-    
-        return top_candidates;
-    }
-    
-    // 选择合适的入口点
-    tableint getEntryPointForKHop(const void *data_point, labeltype query_label, std::unordered_set<labeltype>& khop_nbr) {
-        tableint best_entry_point = 0;
-        dist_t min_distance = std::numeric_limits<dist_t>::max();
-        
-        std::unique_lock<std::mutex> lock(label_lookup_lock);
-        auto search = label_lookup_.find(query_label);
-
-        // 如果已经在索引中（搜索时）
-        if (search != label_lookup_.end()) {
-            lock.unlock();
-            
-             // 直接使用查询点的邻居作为入口点
-            linklistsizeint *ll_cur = get_linklist0(search->second);
-            int size = getListCount(ll_cur);
-            tableint *data = (tableint *) (ll_cur + 1);
-            
-            if (size > 0) {
-                // 找到查询点的邻居中距离最近的一个作为入口点
-                tableint best_entry_point = -1;
-                dist_t min_distance = std::numeric_limits<dist_t>::max();
-                
-                for (int j = 0; j < size; j++) {
-                    tableint neighbor_id = data[j];
-                    
-                    // 确认邻居在k-hop范围内
-                    labeltype neighbor_label = getExternalLabel(neighbor_id);
-                    if (khop_nbr.count(neighbor_label) == 0) continue;
-                    
-                    // 计算邻居与查询点的距离
-                    dist_t dist = fstdistfunc_(data_point, getDataByInternalId(neighbor_id), dist_func_param_);
-                    
-                    if (dist < min_distance) {
-                        min_distance = dist;
-                        best_entry_point = neighbor_id;
-                    }
-                }
-                
-                // 如果找到合适的入口点，直接返回
-                if (best_entry_point != -1) {
-                    return best_entry_point;
-                }
-            }
-        }
-        else {
-            lock.unlock();
-            
-            // 如果查询点不在索引中（构建时）
-            size_t num_elements = cur_element_count;
-            if (num_elements < khop_nbr.size()) {  // 当已索引点数量小于k-hop邻居数量时
-                // 遍历所有已索引点更高效
-                for (tableint i = 0; i < num_elements; i++) {
-                    if (!isMarkedDeleted(i)) {
-                        labeltype candidate_label = getExternalLabel(i);
-                        if (khop_nbr.count(candidate_label) > 0) {
-                            return i;  // 找到第一个合适的入口点
-                        }
-                    }
-                }
-            } else {  // 当k-hop邻居数量小于已索引点数量时
-                // 遍历k-hop邻居更高效
-                std::unique_lock<std::mutex> lock(label_lookup_lock);
-                for (const auto& nbr_label : khop_nbr) {
-                    auto search = label_lookup_.find(nbr_label);
-                    if (search != label_lookup_.end() && !isMarkedDeleted(search->second)) {
-                        return search->second;  // 找到第一个合适的入口点
-                    }
-                }
-            }
-        }
-        
-        return best_entry_point;
-    }
-    std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
-    searchLayerLimitForBuildV1(
-        const void *data_point, 
-        labeltype query_label,
-        std::unordered_set<labeltype>& khop_nbr) {
-        // 返回的top candidates 应该是：
-        // >>> 方案1:所有已经插入节点与khop-nbr的交集，需要按顺序返回
-        // 方案2: 使用已有框架，从q的邻居节点出发的1跳邻居，仍需要判断是否在邻居内
-        // 保持数量<=ef_construction_
-        // 值得注意的是，这个函数仅适用于构建阶段，因为在查找阶段我们完全不需要基于khop再进行过滤
-        
-        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> res;
-
-        size_t num_elements = cur_element_count;
-        if (num_elements < khop_nbr.size()) {
-            for (tableint i = 0; i<num_elements; i++) {
-                if (!isMarkedDeleted(i)) {
-                    labeltype candidate_label = getExternalLabel(i);
-                    if (khop_nbr.count(candidate_label) > 0) {
-                        dist_t dist = fstdistfunc_(data_point, getDataByInternalId(i), dist_func_param_);
-                        res.emplace(dist, i);
-                    }
-                }
-            }
-        }
-        else {
-            std::unique_lock<std::mutex> lock(label_lookup_lock);
-            for (const auto& nbr_label: khop_nbr) {
-                auto search = label_lookup_.find(nbr_label);
-                if (search != label_lookup_.end() && ! isMarkedDeleted(search->second)) {
-                    dist_t dist = fstdistfunc_(data_point, getDataByInternalId(search->second), dist_func_param_);
-                    res.emplace(dist, search -> second);
-                }
-            }
-        }
-        return res;
-    }
-    
     // bare_bone_search means there is no check for deletions and stop condition is ignored in return of extra performance
     template <bool bare_bone_search = true, bool collect_metrics = false>
     std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
@@ -577,21 +371,9 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
                 metric_distance_computations+=size;
             }
 
-#ifdef USE_SSE
-            _mm_prefetch((char *) (visited_array + *(data + 1)), _MM_HINT_T0);
-            _mm_prefetch((char *) (visited_array + *(data + 1) + 64), _MM_HINT_T0);
-            _mm_prefetch(data_level0_memory_ + (*(data + 1)) * size_data_per_element_ + offsetData_, _MM_HINT_T0);
-            _mm_prefetch((char *) (data + 2), _MM_HINT_T0);
-#endif
-
             for (size_t j = 1; j <= size; j++) {
                 int candidate_id = *(data + j);
-//                    if (candidate_id == 0) continue;
-#ifdef USE_SSE
-                _mm_prefetch((char *) (visited_array + *(data + j + 1)), _MM_HINT_T0);
-                _mm_prefetch(data_level0_memory_ + (*(data + j + 1)) * size_data_per_element_ + offsetData_,
-                                _MM_HINT_T0);  ////////////
-#endif
+
                 if (!(visited_array[candidate_id] == visited_array_tag)) {
                     visited_array[candidate_id] = visited_array_tag;
 
@@ -607,11 +389,6 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
 
                     if (flag_consider_candidate) {
                         candidate_set.emplace(-dist, candidate_id);
-#ifdef USE_SSE
-                        _mm_prefetch(data_level0_memory_ + candidate_set.top().second * size_data_per_element_ +
-                                        offsetLevel0_,  ///////////
-                                        _MM_HINT_T0);  ////////////////////////
-#endif
 
                         if (bare_bone_search || 
                             (!isMarkedDeleted(candidate_id) && ((!isIdAllowed) || (*isIdAllowed)(getExternalLabel(candidate_id))))) {
@@ -649,6 +426,240 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
         return top_candidates;
     }
 
+    // bare_bone_search means there is no check for deletions and stop condition is ignored in return of extra performance
+    template <bool bare_bone_search = true, bool collect_metrics = false>
+    std::priority_queue<HopNbrTrible<float>, std::vector<HopNbrTrible<float>>>
+    searchBaseLayerMixM(
+        tableint ep_id,
+        const void *data_point,
+        size_t ef,
+        const std::unordered_set<tableint> &khop_nbrs,
+        BaseFilterFunctor* isIdAllowed = nullptr,
+        BaseSearchStopCondition<dist_t>* stop_condition = nullptr) const {
+        VisitedList *vl = visited_list_pool_->getFreeVisitedList();
+        vl_type *visited_array = vl->mass;
+        vl_type visited_array_tag = vl->curV;
+        
+        std::priority_queue<HopNbrTrible<float>, std::vector<HopNbrTrible<float>>> top_candidates;
+        std::priority_queue<HopNbrTrible<float>, std::vector<HopNbrTrible<float>>> candidate_set;
+
+        dist_t lowerBound;
+        if (bare_bone_search || 
+            (!isMarkedDeleted(ep_id) && ((!isIdAllowed) || (*isIdAllowed)(getExternalLabel(ep_id))))) {
+            char* ep_data = getDataByInternalId(ep_id);
+            dist_t dist = fstdistfunc_(data_point, ep_data, dist_func_param_);
+            lowerBound = dist;
+            top_candidates.emplace(true, dist, ep_id);
+            if (!bare_bone_search && stop_condition) {
+                stop_condition->add_point_to_result(getExternalLabel(ep_id), ep_data, dist);
+            }
+            candidate_set.emplace(false, -dist, ep_id);
+        } else {
+            lowerBound = std::numeric_limits<dist_t>::max();
+            candidate_set.emplace(false, -lowerBound, ep_id);
+        }
+
+        visited_array[ep_id] = visited_array_tag;
+
+        while (!candidate_set.empty()) {
+            HopNbrTrible<float> current_node_pair = candidate_set.top();
+            dist_t candidate_dist = -current_node_pair.dist;
+
+            bool flag_stop_search;
+            if (bare_bone_search) {
+                flag_stop_search = candidate_dist > lowerBound;
+            } else {
+                if (stop_condition) {
+                    flag_stop_search = stop_condition->should_stop_search(candidate_dist, lowerBound);
+                } else {
+                    flag_stop_search = candidate_dist > lowerBound && top_candidates.size() == ef;
+                }
+            }
+            if (flag_stop_search) {
+                break;
+            }
+            candidate_set.pop();
+
+            tableint current_node_id = current_node_pair.id;
+            int *data = (int *) get_linklist0(current_node_id);
+            size_t size = getListCount((linklistsizeint*)data);
+//                bool cur_node_deleted = isMarkedDeleted(current_node_id);
+            if (collect_metrics) {
+                metric_hops++;
+                metric_distance_computations+=size;
+            }
+
+            for (size_t j = 1; j <= size; j++) {
+                int candidate_id = *(data + j);
+
+                if (!(visited_array[candidate_id] == visited_array_tag)) {
+                    visited_array[candidate_id] = visited_array_tag;
+
+                    char *currObj1 = (getDataByInternalId(candidate_id));
+                    dist_t dist = fstdistfunc_(data_point, currObj1, dist_func_param_);
+
+                    bool flag_consider_candidate;
+                    if (!bare_bone_search && stop_condition) {
+                        flag_consider_candidate = stop_condition->should_consider_candidate(dist, lowerBound);
+                    } else {
+                        flag_consider_candidate = top_candidates.size() < ef || lowerBound > dist;
+                    }
+
+                    if (flag_consider_candidate) {
+                        candidate_set.emplace(!(khop_nbrs.find(candidate_id) != khop_nbrs.end()), -dist, candidate_id);
+
+                        if (bare_bone_search || 
+                            (!isMarkedDeleted(candidate_id) && ((!isIdAllowed) || (*isIdAllowed)(getExternalLabel(candidate_id))))) {
+                            top_candidates.emplace((khop_nbrs.find(candidate_id) != khop_nbrs.end()), dist, candidate_id);
+                            if (!bare_bone_search && stop_condition) {
+                                stop_condition->add_point_to_result(getExternalLabel(candidate_id), currObj1, dist);
+                            }
+                        }
+
+                        bool flag_remove_extra = false;
+                        if (!bare_bone_search && stop_condition) {
+                            flag_remove_extra = stop_condition->should_remove_extra();
+                        } else {
+                            flag_remove_extra = top_candidates.size() > ef;
+                        }
+                        while (flag_remove_extra) {
+                            tableint id = top_candidates.top().id;
+                            top_candidates.pop();
+                            if (!bare_bone_search && stop_condition) {
+                                stop_condition->remove_point_from_result(getExternalLabel(id), getDataByInternalId(id), dist);
+                                flag_remove_extra = stop_condition->should_remove_extra();
+                            } else {
+                                flag_remove_extra = top_candidates.size() > ef;
+                            }
+                        }
+
+                        if (!top_candidates.empty())
+                            lowerBound = top_candidates.top().dist;
+                    }
+                }
+            }
+        }
+
+        visited_list_pool_->releaseVisitedList(vl);
+        return top_candidates;
+    }
+
+    // bare_bone_search means there is no check for deletions and stop condition is ignored in return of extra performance
+    template <bool bare_bone_search = true, bool collect_metrics = false>
+    std::priority_queue<HopNbrTrible<float>, std::vector<HopNbrTrible<float>>>
+    searchBaseLayerMixMD(
+        std::unordered_set<labeltype> labels,
+        const void *data_point,
+        size_t ef,
+        const std::unordered_set<tableint> &khop_nbrs,
+        BaseFilterFunctor* isIdAllowed = nullptr,
+        BaseSearchStopCondition<dist_t>* stop_condition = nullptr) const {
+        VisitedList *vl = visited_list_pool_->getFreeVisitedList();
+        vl_type *visited_array = vl->mass;
+        vl_type visited_array_tag = vl->curV;
+        
+        std::priority_queue<HopNbrTrible<float>, std::vector<HopNbrTrible<float>>> top_candidates;
+        std::priority_queue<HopNbrTrible<float>, std::vector<HopNbrTrible<float>>> candidate_set;
+
+        dist_t lowerBound;
+
+        for (labeltype label : labels) { 
+            tableint ep_id = label_lookup_.find(label)->second;
+            char* ep_data = getDataByInternalId(ep_id);
+            dist_t dist = fstdistfunc_(data_point, ep_data, dist_func_param_);
+            lowerBound = dist;
+            top_candidates.emplace(true, dist, ep_id);
+            if (!bare_bone_search && stop_condition) {
+                stop_condition->add_point_to_result(getExternalLabel(ep_id), ep_data, dist);
+            }
+            candidate_set.emplace(false, -dist, ep_id);
+            visited_array[ep_id] = visited_array_tag;
+        }
+        
+        // visited_array[ep_id] = visited_array_tag;
+
+        while (!candidate_set.empty()) {
+            HopNbrTrible<float> current_node_pair = candidate_set.top();
+            dist_t candidate_dist = -current_node_pair.dist;
+
+            bool flag_stop_search;
+            if (bare_bone_search) {
+                flag_stop_search = candidate_dist > lowerBound;
+            } else {
+                if (stop_condition) {
+                    flag_stop_search = stop_condition->should_stop_search(candidate_dist, lowerBound);
+                } else {
+                    flag_stop_search = candidate_dist > lowerBound && top_candidates.size() == ef;
+                }
+            }
+            if (flag_stop_search) {
+                break;
+            }
+            candidate_set.pop();
+
+            tableint current_node_id = current_node_pair.id;
+            int *data = (int *) get_linklist0(current_node_id);
+            size_t size = getListCount((linklistsizeint*)data);
+//                bool cur_node_deleted = isMarkedDeleted(current_node_id);
+            if (collect_metrics) {
+                metric_hops++;
+                metric_distance_computations+=size;
+            }
+
+            for (size_t j = 1; j <= size; j++) {
+                int candidate_id = *(data + j);
+
+                if (!(visited_array[candidate_id] == visited_array_tag)) {
+                    visited_array[candidate_id] = visited_array_tag;
+
+                    char *currObj1 = (getDataByInternalId(candidate_id));
+                    dist_t dist = fstdistfunc_(data_point, currObj1, dist_func_param_);
+
+                    bool flag_consider_candidate;
+                    if (!bare_bone_search && stop_condition) {
+                        flag_consider_candidate = stop_condition->should_consider_candidate(dist, lowerBound);
+                    } else {
+                        flag_consider_candidate = top_candidates.size() < ef || lowerBound > dist;
+                    }
+
+                    if (flag_consider_candidate) {
+                        candidate_set.emplace(!(khop_nbrs.find(candidate_id) != khop_nbrs.end()), -dist, candidate_id);
+
+                        if (bare_bone_search || 
+                            (!isMarkedDeleted(candidate_id) && ((!isIdAllowed) || (*isIdAllowed)(getExternalLabel(candidate_id))))) {
+                            top_candidates.emplace((khop_nbrs.find(candidate_id) != khop_nbrs.end()), dist, candidate_id);
+                            if (!bare_bone_search && stop_condition) {
+                                stop_condition->add_point_to_result(getExternalLabel(candidate_id), currObj1, dist);
+                            }
+                        }
+
+                        bool flag_remove_extra = false;
+                        if (!bare_bone_search && stop_condition) {
+                            flag_remove_extra = stop_condition->should_remove_extra();
+                        } else {
+                            flag_remove_extra = top_candidates.size() > ef;
+                        }
+                        while (flag_remove_extra) {
+                            tableint id = top_candidates.top().id;
+                            top_candidates.pop();
+                            if (!bare_bone_search && stop_condition) {
+                                stop_condition->remove_point_from_result(getExternalLabel(id), getDataByInternalId(id), dist);
+                                flag_remove_extra = stop_condition->should_remove_extra();
+                            } else {
+                                flag_remove_extra = top_candidates.size() > ef;
+                            }
+                        }
+
+                        if (!top_candidates.empty())
+                            lowerBound = top_candidates.top().dist;
+                    }
+                }
+            }
+        }
+
+        visited_list_pool_->releaseVisitedList(vl);
+        return top_candidates;
+    }
 
     void getNeighborsByHeuristic2(
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> &top_candidates,
@@ -692,6 +703,124 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
         }
     }
 
+    void getNeighborsByHeuristic2MixM(
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> &top_candidates,
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> nbrs_pq,
+        std::unordered_set<tableint> nbrs_set,
+        float nbr_rat,
+        const size_t M) {
+        if (top_candidates.size() < M) {
+            return;
+        }
+        
+        int fake_M = std::min(M, top_candidates.size());
+
+        int noNbr_limit = (int)(M - ((float)M)*nbr_rat);
+        bool print = false;
+        bool assert_flag = false;
+
+        // if (nbrs_set.size() > 0) print = true;
+        if (print) std::cout << "noNbr_limit: " << noNbr_limit << std::endl;
+        if (print) std::cout << "nbr_rat" << nbr_rat << std::endl;
+        int noNbr_cnt = 0;
+        if (print){
+            for (auto nbr : nbrs_set){
+                std::cout << nbr << " ";
+            }
+            std::cout << std::endl;
+        }
+
+        std::priority_queue<std::pair<dist_t, tableint>> queue_closest;
+        std::vector<std::pair<dist_t, tableint>> return_list;
+        while (top_candidates.size() > 0) {
+            queue_closest.emplace(-top_candidates.top().first, top_candidates.top().second);
+            top_candidates.pop();
+        }
+        while (queue_closest.size()) {
+            // 当noNbr达到上限时，先插入nbrs
+            if (noNbr_cnt >= noNbr_limit) {
+                // assert_flag = true;
+                if (print) {
+                    std::cout << "mixm0" << std::endl;
+                    std::cout << "nbrs_pq.size(): " << nbrs_pq.size() << std::endl;
+                    std::cout << "nbrs_set.size() " << nbrs_set.size() << std::endl;
+                    std::cout << return_list.size() << std::endl;
+                }
+                
+                while (nbrs_pq.size() > 0 && return_list.size() < M) {
+                    if (print) std::cout << "mixm1" << std::endl;
+                    auto next_nbr = nbrs_pq.top();
+
+                    if (nbrs_set.find(next_nbr.second) != nbrs_set.end()) {
+                        if (print) std::cout << "mix-isnbr" << next_nbr.second << std::endl;
+                        return_list.push_back(next_nbr);
+                        nbrs_set.erase(next_nbr.second);
+                    }
+                    nbrs_pq.pop();
+                }
+            }
+            if (return_list.size() >= M)
+                break;
+            
+            std::pair<dist_t, tableint> curent_pair = queue_closest.top();
+            dist_t dist_to_query = -curent_pair.first;
+            queue_closest.pop();
+            bool good = true;
+            
+            for (std::pair<dist_t, tableint> second_pair : return_list) {
+                dist_t curdist =
+                        fstdistfunc_(getDataByInternalId(second_pair.second),
+                                        getDataByInternalId(curent_pair.second),
+                                        dist_func_param_);
+                if (curdist < dist_to_query) {
+                    good = false;
+                    break;
+                }
+            }
+            if (good) {
+                if (print) std::cout << "good" << curent_pair.second << std::endl;
+                // 登记为nonbr或者nbr
+                if (nbrs_set.find(curent_pair.second) != nbrs_set.end()) {
+                    // nbr
+                    nbrs_set.erase(curent_pair.second);
+                    if (print) std::cout << "nbr" << curent_pair.second << std::endl;
+                } else {
+                    // no nbr
+                    noNbr_cnt++;
+                    if (print) std::cout << "no nbr" << curent_pair.second << std::endl;
+                }
+                if (print) std::cout << "noNbr_cnt" << noNbr_cnt << std::endl;
+
+                return_list.push_back(curent_pair);
+            } else {
+                if (print) std::cout << "not good" << curent_pair.second << std::endl;
+            }
+        }
+
+        for (std::pair<dist_t, tableint> curent_pair : return_list) {
+            if (print) std::cout << "return" << curent_pair.second << std::endl;
+            top_candidates.emplace(-curent_pair.first, curent_pair.second);
+        }
+        if (assert_flag && print) assert (false);
+    }
+
+    void addNbrInfo(int max_bridges) {
+        std::unordered_set<labeltype> bridges = graph_rel->getMaxDegreeNodes(max_bridges);
+
+        for (auto brg: bridges) {
+            std::unordered_set<labeltype> nbrs = graph_rel->getKHopNodes(brg, 1);
+            
+        }
+    }
+
+    void AddNbrInfoBridge(labeltype bridge, const std::unordered_set<labeltype> &nbrs){
+        tableint brg_id = label_lookup_.find(bridge)->second;
+        for (auto nbr: nbrs) {
+            tableint nbr_id = label_lookup_.find(nbr)->second;
+            
+
+        }
+    }
 
     linklistsizeint *get_linklist0(tableint internal_id) const {
         return (linklistsizeint *) (data_level0_memory_ + internal_id * size_data_per_element_ + offsetLevel0_);
@@ -721,6 +850,9 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
         bool isUpdate) {
         size_t Mcurmax = level ? maxM_ : maxM0_;
         getNeighborsByHeuristic2(top_candidates, M_);
+        
+
+
         if (top_candidates.size() > M_)
             throw std::runtime_error("Should be not be more than M_ candidates returned by the heuristic");
 
@@ -839,6 +971,185 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
         return next_closest_entry_point;
     }
 
+    tableint mutuallyConnectNewElementMixM(
+        const void *data_point,
+        tableint cur_c,
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> &top_candidates,
+        int level,
+        bool isUpdate,
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> nbrs_pq,
+        std::unordered_set<tableint> nbrs_set
+    ) {
+        size_t Mcurmax = level ? maxM_ : maxM0_;
+        // getNeighborsByHeuristic2(ori_top_candidates, M_);
+        // std::cout << "nbr_rat_" << nbr_rat_ << std::endl;
+        getNeighborsByHeuristic2MixM(top_candidates, nbrs_pq, nbrs_set, nbr_rat_, M_);
+        
+        // // V1:
+        // // 计算结果中所得nbrs比例是否满足nbr_rat
+        // // 若是，则不变
+        // // 若否，则插入至对应比例
+        // int all_size = ori_top_candidates.size();
+        // int nbr_limit = int(ori_top_candidates.size() * nbr_rat);
+        // int nbr_cnt = 0;
+        
+        // int noNbr_cnt = 0;
+        // std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
+        // while(!ori_top_candidates.empty()){
+        //     std::pair<dist_t, tableint> re = ori_top_candidates.top();
+        //     if (!(nbrs_set.find(re.second) == nbrs_set.end())) {
+        //         top_candidates.emplace(re);
+        //         nbrs_set.erase(re.second);
+        //     } else if (noNbr_cnt < all_size - nbr_limit) {
+        //         top_candidates.emplace(re);
+        //         noNbr_cnt++;
+        //     } else {}
+        //     ori_top_candidates.pop();
+        // }
+        // while (top_candidates.size() < all_size){
+        //     std::pair<dist_t, tableint> re = nbrs_pq.top();
+        //     if (!(nbrs_set.find(re.second) == nbrs_set.end())){
+        //         top_candidates.emplace(re);
+        //     }
+        //     nbrs_pq.pop();
+        // }
+        
+        if (top_candidates.size() > M_)
+            throw std::runtime_error("Should be not be more than M_ candidates returned by the heuristic");
+
+        std::vector<tableint> selectedNeighbors;
+        selectedNeighbors.reserve(M_);
+        while (top_candidates.size() > 0) {
+            selectedNeighbors.push_back(top_candidates.top().second);
+            top_candidates.pop();
+        }
+
+        tableint next_closest_entry_point = selectedNeighbors.back();
+
+        {
+            // lock only during the update
+            // because during the addition the lock for cur_c is already acquired
+            std::unique_lock <std::mutex> lock(link_list_locks_[cur_c], std::defer_lock);
+            if (isUpdate) {
+                lock.lock();
+            }
+            linklistsizeint *ll_cur;
+            if (level == 0)
+                ll_cur = get_linklist0(cur_c);
+            else
+                ll_cur = get_linklist(cur_c, level);
+
+            if (*ll_cur && !isUpdate) {
+                throw std::runtime_error("The newly inserted element should have blank link list");
+            }
+            setListCount(ll_cur, selectedNeighbors.size());
+            tableint *data = (tableint *) (ll_cur + 1);
+            for (size_t idx = 0; idx < selectedNeighbors.size(); idx++) {
+                if (data[idx] && !isUpdate)
+                    throw std::runtime_error("Possible memory corruption");
+                if (level > element_levels_[selectedNeighbors[idx]]) {
+                    // continue;
+                    throw std::runtime_error("Trying to make a link on a non-existent level");
+                }
+
+                data[idx] = selectedNeighbors[idx];
+            }
+        }
+
+        for (size_t idx = 0; idx < selectedNeighbors.size(); idx++) {
+            std::unique_lock <std::mutex> lock(link_list_locks_[selectedNeighbors[idx]]);
+
+            linklistsizeint *ll_other;
+            if (level == 0)
+                ll_other = get_linklist0(selectedNeighbors[idx]);
+            else
+                ll_other = get_linklist(selectedNeighbors[idx], level);
+
+            size_t sz_link_list_other = getListCount(ll_other);
+
+            if (sz_link_list_other > Mcurmax)
+                throw std::runtime_error("Bad value of sz_link_list_other");
+            if (selectedNeighbors[idx] == cur_c)
+                throw std::runtime_error("Trying to connect an element to itself");
+            if (level > element_levels_[selectedNeighbors[idx]])
+                throw std::runtime_error("Trying to make a link on a non-existent level");
+
+            tableint *data = (tableint *) (ll_other + 1);
+
+            bool is_cur_c_present = false;
+            if (isUpdate) {
+                for (size_t j = 0; j < sz_link_list_other; j++) {
+                    if (data[j] == cur_c) {
+                        is_cur_c_present = true;
+                        break;
+                    }
+                }
+            }
+
+            // If cur_c is already present in the neighboring connections of `selectedNeighbors[idx]` then no need to modify any connections or run the heuristics.
+            if (!is_cur_c_present) {
+                if (sz_link_list_other < Mcurmax) {
+                    data[sz_link_list_other] = cur_c;
+                    setListCount(ll_other, sz_link_list_other + 1);
+                } else {
+                    // finding the "weakest" element to replace it with the new one
+                    dist_t d_max = fstdistfunc_(getDataByInternalId(cur_c), getDataByInternalId(selectedNeighbors[idx]),
+                                                dist_func_param_);
+                    // Heuristic:
+                    std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidates;
+                    candidates.emplace(d_max, cur_c);
+
+                    for (size_t j = 0; j < sz_link_list_other; j++) {
+                        candidates.emplace(
+                                fstdistfunc_(getDataByInternalId(data[j]), getDataByInternalId(selectedNeighbors[idx]),
+                                                dist_func_param_), data[j]);
+                    }
+                    
+                    std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> nbr_nbrs_pq;
+                    std::unordered_set<labeltype> all_nbrs_set = graph_rel->getKHopNodes(getExternalLabel(selectedNeighbors[idx]), 1);
+                    std::unordered_set<labeltype> nbr_nbrs_set;
+                    for (auto nbr : all_nbrs_set) {
+                        if (inserted_labels.find(nbr) != inserted_labels.end())
+                            nbr_nbrs_set.insert(nbr);
+                    }
+
+                    std::unordered_set<tableint> nbrs_set_ti;
+                    for (auto nbr : nbr_nbrs_set) {
+                        auto search = label_lookup_.find(nbr);
+                        tableint internalId = search->second;
+                        dist_t dist = fstdistfunc_(data_point, getDataByInternalId(internalId), dist_func_param_);
+                        nbr_nbrs_pq.emplace(dist, internalId);
+                        nbrs_set_ti.insert(internalId);
+                    }
+
+                    getNeighborsByHeuristic2MixM(candidates, nbrs_pq, nbrs_set_ti, nbr_rat_, Mcurmax);
+
+                    int indx = 0;
+                    while (candidates.size() > 0) {
+                        data[indx] = candidates.top().second;
+                        candidates.pop();
+                        indx++;
+                    }
+
+                    setListCount(ll_other, indx);
+                    // Nearest K:
+                    /*int indx = -1;
+                    for (int j = 0; j < sz_link_list_other; j++) {
+                        dist_t d = fstdistfunc_(getDataByInternalId(data[j]), getDataByInternalId(rez[idx]), dist_func_param_);
+                        if (d > d_max) {
+                            indx = j;
+                            d_max = d;
+                        }
+                    }
+                    if (indx >= 0) {
+                        data[indx] = cur_c;
+                    } */
+                }
+            }
+        }
+
+        return next_closest_entry_point;
+    }
 
     void resizeIndex(size_t new_max_elements) {
         if (new_max_elements < cur_element_count)
@@ -1056,6 +1367,24 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
         return data;
     }
 
+    template<typename data_t>
+    char* getDataByLabelPt(labeltype label) const {
+        // lock all operations with element by label
+        std::unique_lock <std::mutex> lock_label(getLabelOpMutex(label));
+        
+        std::unique_lock <std::mutex> lock_table(label_lookup_lock);
+        auto search = label_lookup_.find(label);
+        if (search == label_lookup_.end() || isMarkedDeleted(search->second)) {
+            throw std::runtime_error("Label not found");
+        }
+        tableint internalId = search->second;
+        lock_table.unlock();
+
+        char* data_ptrv = getDataByInternalId(internalId);
+        return data_ptrv;
+    }
+
+
 
     /*
     * Marks an element with the given label deleted, does NOT really change the current graph.
@@ -1201,22 +1530,37 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
         }
     }
 
-
-    void addPointLimit(const void *data_point, labeltype label, bool replace_deleted = false) {
+    void addPointMixM(const void *data_point, labeltype label, bool replace_deleted = false) {
         if ((allow_replace_deleted_ == false) && (replace_deleted == true)) {
             throw std::runtime_error("Replacement of deleted elements is disabled in constructor");
         }
-
-        std::unordered_set<labeltype> khop_nbr = graph_rel->getKHopNodes(label, graph_hopk);
-
         // lock all operations with element by label
         std::unique_lock <std::mutex> lock_label(getLabelOpMutex(label));
-        if (!replace_deleted) {
-            // addPoint(data_point, label, -1);
-            addPointLimit(data_point, label, khop_nbr);
-            return;
+
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> nbrs_pq;
+        std::unordered_set<labeltype> all_nbrs_set = graph_rel->getKHopNodes(label, 1);
+        std::unordered_set<labeltype> nbrs_set;
+
+        for (auto nbr : all_nbrs_set) {
+            if (inserted_labels.find(nbr) != inserted_labels.end())
+                nbrs_set.insert(nbr);
         }
 
+        std::unordered_set<tableint> nbrs_set_ti;
+        for (auto nbr : nbrs_set) {
+            auto search = label_lookup_.find(nbr);
+            tableint internalId = search->second;
+            dist_t dist = fstdistfunc_(data_point, getDataByInternalId(internalId), dist_func_param_);
+            nbrs_pq.emplace(dist, internalId);
+            nbrs_set_ti.insert(internalId);
+        }
+
+        if (!replace_deleted) {
+            // std::cout << "ap1" << nbrs_set_ti.size() << std::endl;
+            addPointMixM(data_point, label, nbrs_pq, nbrs_set_ti, -1);
+            inserted_labels.insert(label);
+            return;
+        }
         // check if there is vacant place
         tableint internal_id_replaced;
         std::unique_lock <std::mutex> lock_deleted_elements(deleted_elements_lock);
@@ -1230,8 +1574,7 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
         // if there is no vacant place then add or update point
         // else add point to vacant place
         if (!is_vacant_place) {
-            // addPoint(data_point, label, -1);
-            addPointLimit(data_point, label, khop_nbr);
+            addPoint(data_point, label, -1);
         } else {
             // we assume that there are no concurrent operations on deleted element
             labeltype label_replaced = getExternalLabel(internal_id_replaced);
@@ -1245,119 +1588,7 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
             unmarkDeletedInternal(internal_id_replaced);
             updatePoint(data_point, internal_id_replaced, 1.0);
         }
-    }
-
-    
-    tableint addPointLimit(const void *data_point, labeltype label, std::unordered_set<labeltype> khop_nbr) {
-        tableint cur_c = 0;
-        {
-            // Checking if the element with the same label already exists
-            // if so, updating it *instead* of creating a new element.
-            std::unique_lock <std::mutex> lock_table(label_lookup_lock);
-            auto search = label_lookup_.find(label);
-            if (search != label_lookup_.end()) {
-                tableint existingInternalId = search->second;
-                if (allow_replace_deleted_) {
-                    if (isMarkedDeleted(existingInternalId)) {
-                        throw std::runtime_error("Can't use addPoint to update deleted elements if replacement of deleted elements is enabled.");
-                    }
-                }
-                lock_table.unlock();
-
-                if (isMarkedDeleted(existingInternalId)) {
-                    unmarkDeletedInternal(existingInternalId);
-                }
-
-                // 暂不考虑更新过程中对约束的违反
-                updatePoint(data_point, existingInternalId, 1.0);
-
-                return existingInternalId;
-            }
-
-            if (cur_element_count >= max_elements_) {
-                throw std::runtime_error("The number of elements exceeds the specified limit");
-            }
-
-            cur_c = cur_element_count;
-            cur_element_count++;
-            label_lookup_[label] = cur_c;
-        }
-
-        // 初始化新节点的内存和属性
-        std::unique_lock <std::mutex> lock_el(link_list_locks_[cur_c]);
-        int curlevel = 0;
-        element_levels_[cur_c] = curlevel;
-
-        // 设置索引的最大层级为0
-        std::unique_lock <std::mutex> templock(global);
-        if (maxlevel_ < 0) maxlevel_ = 0;  // 确保最大层级至少为0
-        templock.unlock();
-
-        tableint currObj = enterpoint_node_;
-        tableint enterpoint_copy = enterpoint_node_;
-
-        memset(data_level0_memory_ + cur_c * size_data_per_element_ + offsetLevel0_, 0, size_data_per_element_);
-
-        // Initialisation of the data and label
-        memcpy(getExternalLabeLp(cur_c), &label, sizeof(labeltype));
-        memcpy(getDataByInternalId(cur_c), data_point, data_size_);
-
-        // if (curlevel) {
-        //     linkLists_[cur_c] = (char *) malloc(size_links_per_element_ * curlevel + 1);
-        //     if (linkLists_[cur_c] == nullptr)
-        //         throw std::runtime_error("Not enough memory: addPoint failed to allocate linklist");
-        //     memset(linkLists_[cur_c], 0, size_links_per_element_ * curlevel + 1);
-        // }
-
-        if ((signed)currObj != -1) {
-            std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates = 
-                searchLayerLimitForBuildV1(data_point, label, khop_nbr);
-                // searchBaseLayerLimit(data_point, label, khop_nbr);
-
-            // // 搜索kHop中最近的一些候选节点
-            // std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
-            
-            // // 遍历所有k-hop邻居，找出最近的ef_construction_个邻居
-            // for (auto& nbr_label : khop_nbr) {
-            //     // 跳过自身
-            //     if (nbr_label == label) continue;
-                
-            //     // 获取邻居的内部ID
-            //     std::unique_lock<std::mutex> lock(label_lookup_lock);
-            //     auto search = label_lookup_.find(nbr_label);
-            //     if (search == label_lookup_.end()) continue; // 邻居可能尚未添加
-            //     tableint nbr_id = search->second;
-            //     lock.unlock();
-                
-            //     // 跳过已删除的节点
-            //     if (isMarkedDeleted(nbr_id)) continue;
-                
-            //     // 计算距离
-            //     dist_t dist = fstdistfunc_(data_point, getDataByInternalId(nbr_id), dist_func_param_);
-                
-            //     // 加入候选集
-            //     if (top_candidates.size() < ef_construction_) {
-            //         top_candidates.emplace(dist, nbr_id);
-            //     } else if (dist < top_candidates.top().first) {
-            //         top_candidates.pop();
-            //         top_candidates.emplace(dist, nbr_id);
-            //     }
-            // }
-
-            // 启发式筛选并建立连接
-            mutuallyConnectNewElement(data_point, cur_c, top_candidates, 0, false);
-        } else {
-            // Do nothing for the first element
-            enterpoint_node_ = 0;
-            maxlevel_ = 0;
-        }
-
-        // // Releasing lock for the maximum level
-        // if (curlevel > maxlevelcopy) {
-        //     enterpoint_node_ = cur_c;
-        //     maxlevel_ = curlevel;
-        // }
-        return cur_c;
+        inserted_labels.insert(label);
     }
 
 
@@ -1635,6 +1866,127 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
         return cur_c;
     }
 
+    tableint addPointMixM(
+        const void *data_point, 
+        labeltype label, 
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> nbrs_pq, 
+        std::unordered_set<tableint> nbrs_set, int level) {
+        tableint cur_c = 0;
+        {
+            // Checking if the element with the same label already exists
+            // if so, updating it *instead* of creating a new element.
+            std::unique_lock <std::mutex> lock_table(label_lookup_lock);
+            auto search = label_lookup_.find(label);
+            if (search != label_lookup_.end()) {
+                tableint existingInternalId = search->second;
+                if (allow_replace_deleted_) {
+                    if (isMarkedDeleted(existingInternalId)) {
+                        throw std::runtime_error("Can't use addPoint to update deleted elements if replacement of deleted elements is enabled.");
+                    }
+                }
+                lock_table.unlock();
+
+                if (isMarkedDeleted(existingInternalId)) {
+                    unmarkDeletedInternal(existingInternalId);
+                }
+                updatePoint(data_point, existingInternalId, 1.0);
+
+                return existingInternalId;
+            }
+
+            if (cur_element_count >= max_elements_) {
+                throw std::runtime_error("The number of elements exceeds the specified limit");
+            }
+
+            cur_c = cur_element_count;
+            cur_element_count++;
+            label_lookup_[label] = cur_c;
+        }
+
+        std::unique_lock <std::mutex> lock_el(link_list_locks_[cur_c]);
+        int curlevel = getRandomLevel(mult_);
+        if (level > 0)
+            curlevel = level;
+
+        element_levels_[cur_c] = curlevel;
+
+        std::unique_lock <std::mutex> templock(global);
+        int maxlevelcopy = maxlevel_;
+        if (curlevel <= maxlevelcopy)
+            templock.unlock();
+        tableint currObj = enterpoint_node_;
+        tableint enterpoint_copy = enterpoint_node_;
+
+        memset(data_level0_memory_ + cur_c * size_data_per_element_ + offsetLevel0_, 0, size_data_per_element_);
+
+        // Initialisation of the data and label
+        memcpy(getExternalLabeLp(cur_c), &label, sizeof(labeltype));
+        memcpy(getDataByInternalId(cur_c), data_point, data_size_);
+
+        if (curlevel) {
+            linkLists_[cur_c] = (char *) malloc(size_links_per_element_ * curlevel + 1);
+            if (linkLists_[cur_c] == nullptr)
+                throw std::runtime_error("Not enough memory: addPoint failed to allocate linklist");
+            memset(linkLists_[cur_c], 0, size_links_per_element_ * curlevel + 1);
+        }
+
+        if ((signed)currObj != -1) {
+            if (curlevel < maxlevelcopy) {
+                dist_t curdist = fstdistfunc_(data_point, getDataByInternalId(currObj), dist_func_param_);
+                for (int level = maxlevelcopy; level > curlevel; level--) {
+                    bool changed = true;
+                    while (changed) {
+                        changed = false;
+                        unsigned int *data;
+                        std::unique_lock <std::mutex> lock(link_list_locks_[currObj]);
+                        data = get_linklist(currObj, level);
+                        int size = getListCount(data);
+
+                        tableint *datal = (tableint *) (data + 1);
+                        for (int i = 0; i < size; i++) {
+                            tableint cand = datal[i];
+                            if (cand < 0 || cand > max_elements_)
+                                throw std::runtime_error("cand error");
+                            dist_t d = fstdistfunc_(data_point, getDataByInternalId(cand), dist_func_param_);
+                            if (d < curdist) {
+                                curdist = d;
+                                currObj = cand;
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            bool epDeleted = isMarkedDeleted(enterpoint_copy);
+            for (int level = std::min(curlevel, maxlevelcopy); level >= 0; level--) {
+                if (level > maxlevelcopy || level < 0)  // possible?
+                    throw std::runtime_error("Level error");
+
+                std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates = searchBaseLayer(
+                        currObj, data_point, level);
+                if (epDeleted) {
+                    top_candidates.emplace(fstdistfunc_(data_point, getDataByInternalId(enterpoint_copy), dist_func_param_), enterpoint_copy);
+                    if (top_candidates.size() > ef_construction_)
+                        top_candidates.pop();
+                }
+                if (level > 0) currObj = mutuallyConnectNewElement(data_point, cur_c, top_candidates, level, false);
+                else currObj = mutuallyConnectNewElementMixM(data_point, cur_c, top_candidates, level, false, nbrs_pq, nbrs_set);
+            }
+        } else {
+            // Do nothing for the first element
+            enterpoint_node_ = 0;
+            maxlevel_ = curlevel;
+        }
+
+        // Releasing lock for the maximum level
+        if (curlevel > maxlevelcopy) {
+            enterpoint_node_ = cur_c;
+            maxlevel_ = curlevel;
+        }
+        return cur_c;
+    }
+
 
     std::priority_queue<std::pair<dist_t, labeltype >>
     searchKnn(const void *query_data, size_t k, BaseFilterFunctor* isIdAllowed = nullptr) const {
@@ -1692,125 +2044,246 @@ class GraphHNSW : public AlgorithmInterface<dist_t> {
         return result;
     }
 
-    std::priority_queue<std::pair<dist_t, labeltype>>
-    searchKnnLimit(size_t k, labeltype query_label) const {
-        std::priority_queue<std::pair<dist_t, labeltype>> result;
-        if (cur_element_count == 0) return result;
-    
-        // // 获取查询点的k-hop邻居
-        // std::unordered_set<labeltype> khop_nbr = graph_rel->getKHopNodes(query_label, graph_hopk);
-        
-        // // 直接使用searchBaseLayerLimit在k-hop邻居中搜索
-        // std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates = 
-            // const_cast<GraphHNSW*>(this)->searchBaseLayerLimit(query_data, query_label, khop_nbr);
-
-        
-        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
-
-        std::unique_lock<std::mutex> lock(label_lookup_lock);
-        auto search = label_lookup_.find(query_label);
-        if (search == label_lookup_.end()) {
-            throw std::runtime_error("Label not found");
+    std::unordered_set<tableint> getInternalIdSet(
+        std::unordered_set<labeltype> khop_nbrs
+    ) {
+        std::unordered_set<tableint> result;
+        for (auto nbr: khop_nbrs) {
+            result.insert(label_lookup_[nbr]);
         }
-        tableint curNodeNum = search->second;
-        char *data_point = (getDataByInternalId(curNodeNum));
-        lock.unlock();
-
-        // std::unique_lock<std::mutex> lock(link_list_locks_[curNodeNum]);
-    
-        int *data = (int*)get_linklist0(curNodeNum); // 只在第 0 层搜索
-        size_t size = getListCount((linklistsizeint*)data);
-        tableint *datal = (tableint *) (data + 1);
-
-        for (size_t j = 0; j < size; j++) {
-            tableint candidate_id = *(datal + j);
-            
-            char *currObj1 = (getDataByInternalId(candidate_id));
-            dist_t dist1 = fstdistfunc_(data_point, currObj1, dist_func_param_);
-            top_candidates.emplace(dist1, candidate_id);
-        }
-        
-        // 将搜索结果转换为最终格式
-        while (!top_candidates.empty()) {
-            std::pair<dist_t, tableint> rez = top_candidates.top();
-            result.push(std::pair<dist_t, labeltype>(rez.first, getExternalLabel(rez.second)));
-            top_candidates.pop();
-        }
-    
         return result;
     }
 
-    std::priority_queue<std::pair<dist_t, labeltype>>
-    searchKnnLimitMultiquery(size_t k, labeltype src_label, std::unordered_set<labeltype>& query_labels, 
-        std::priority_queue<std::pair<dist_t, labeltype>>& result) const {
-            // 暂时不使用visited_list, 后续完善
-            // 需要调研visited list怎么用
-            // , VisitedList* vl
+    std::priority_queue<std::pair<dist_t, labeltype >>
+    searchKnnMixM(const void *query_data, size_t k, const std::unordered_set<tableint> &khop_nbrs, BaseFilterFunctor* isIdAllowed = nullptr) const {
+        std::priority_queue<std::pair<dist_t, labeltype >> result;
         if (cur_element_count == 0) return result;
         
-        // // 获取查询点的k-hop邻居
-        // std::unordered_set<labeltype> khop_nbr = graph_rel->getKHopNodes(query_label, graph_hopk);
-        
-        // // 直接使用searchBaseLayerLimit在k-hop邻居中搜索
-        // std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates = 
-            // const_cast<GraphHNSW*>(this)->searchBaseLayerLimit(query_data, query_label, khop_nbr);
+        tableint currObj = enterpoint_node_;
+        dist_t curdist = fstdistfunc_(query_data, getDataByInternalId(enterpoint_node_), dist_func_param_);
 
-        
-        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
-        std::vector<tableint> nodeidx_list(query_labels.size());
+        for (int level = maxlevel_; level > 0; level--) {
+            bool changed = true;
+            while (changed) {
+                changed = false;
+                unsigned int *data;
 
-        std::unique_lock<std::mutex> lock(label_lookup_lock);
-        int query_idx = 0;
-        for (auto query_label: query_labels) {
-            auto search = label_lookup_.find(query_label);
-            if (search == label_lookup_.end()) {
-                throw std::runtime_error("Label not found");
+                data = (unsigned int *) get_linklist(currObj, level);
+                int size = getListCount(data);
+                metric_hops++;
+                metric_distance_computations+=size;
+
+                tableint *datal = (tableint *) (data + 1);
+                for (int i = 0; i < size; i++) {
+                    tableint cand = datal[i];
+                    if (cand < 0 || cand > max_elements_)
+                        throw std::runtime_error("cand error");
+                    dist_t d = fstdistfunc_(query_data, getDataByInternalId(cand), dist_func_param_);
+
+                    if (d < curdist) {
+                        curdist = d;
+                        currObj = cand;
+                        changed = true;
+                    }
+                }
             }
-            nodeidx_list[query_idx] = search->second;
-            // data_points[query_idx] = (getDataByInternalId(curNodeNum));
-            query_idx ++;
+        }
+        // directly find currObj via neighbors
+
+
+        bool bare_bone_search = !num_deleted_ && !isIdAllowed;
+        std::priority_queue<HopNbrTrible<float>, std::vector<HopNbrTrible<float>>> top_candidates;
+        if (bare_bone_search) {
+            top_candidates = searchBaseLayerMixM<true>(
+                    currObj, query_data, std::max(ef_, k), khop_nbrs, isIdAllowed);
+        } else {
+            top_candidates = searchBaseLayerMixM<false>(
+                    currObj, query_data, std::max(ef_, k), khop_nbrs, isIdAllowed);
         }
 
-        auto src_search = label_lookup_.find(src_label);
-        tableint srcNodeNum = src_search->second;
-        auto src_datapoint = (getDataByInternalId(srcNodeNum));
-        lock.unlock();
+        while (top_candidates.size() > k) {
+            top_candidates.pop();
+        }
+        while (top_candidates.size() > 0) {
+            HopNbrTrible<float> rez = top_candidates.top();
+            result.push(std::pair<dist_t, labeltype>(rez.dist, getExternalLabel(rez.id)));
+            top_candidates.pop();
+        }
 
-        // std::unique_lock<std::mutex> lock(link_list_locks_[curNodeNum]);
-        query_idx = 0;
-        for (auto node: nodeidx_list) {
-            tableint curNodeNum = nodeidx_list[query_idx];
-            int *data = (int*)get_linklist0(curNodeNum); // 只在第 0 层搜索
-            size_t size = getListCount((linklistsizeint*)data);
-            tableint *datal = (tableint *) (data + 1);
+        // std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
+        // if (bare_bone_search) {
+        //     top_candidates = searchBaseLayerST<true>(
+        //             currObj, query_data, std::max(ef_, k), isIdAllowed);
+        // } else {
+        //     top_candidates = searchBaseLayerST<false>(
+        //             currObj, query_data, std::max(ef_, k), isIdAllowed);
+        // }
 
-            for (size_t j = 0; j < size; j++) {
-                tableint candidate_id = *(datal + j);
-                
-                if (query_labels.count(candidate_id) > 0) continue;
-                // if (visited_array[candidate_id] == visited_tag) continue;
-                // visited_array[candidate_id] = visited_array_tag;
-
-                char *currObj1 = (getDataByInternalId(candidate_id));
-                dist_t dist1 = fstdistfunc_(src_datapoint, currObj1, dist_func_param_);
-                result.emplace(dist1, getExternalLabel(candidate_id));
-                // if need only k results, change here
-                
-                query_labels.insert(candidate_id);
-            }
-        
-        // // 将搜索结果转换为最终格式
-        // while (!top_candidates.empty()) {
+        // while (top_candidates.size() > k) {
+        //     top_candidates.pop();
+        // }
+        // while (top_candidates.size() > 0) {
         //     std::pair<dist_t, tableint> rez = top_candidates.top();
         //     result.push(std::pair<dist_t, labeltype>(rez.first, getExternalLabel(rez.second)));
         //     top_candidates.pop();
         // }
-            query_idx ++;
-        }
-    
         return result;
     }
 
+    std::priority_queue<std::pair<dist_t, labeltype >>
+    searchKnnMixMD(const void *query_data, size_t k, labeltype label, const std::unordered_set<tableint> &khop_nbrs, BaseFilterFunctor* isIdAllowed = nullptr) const {
+        std::priority_queue<std::pair<dist_t, labeltype >> result;
+        if (cur_element_count == 0) return result;
+        
+        // tableint currObj = enterpoint_node_;
+        // dist_t curdist = fstdistfunc_(query_data, getDataByInternalId(enterpoint_node_), dist_func_param_);
+
+        // for (int level = maxlevel_; level > 0; level--) {
+        //     bool changed = true;
+        //     while (changed) {
+        //         changed = false;
+        //         unsigned int *data;
+
+        //         data = (unsigned int *) get_linklist(currObj, level);
+        //         int size = getListCount(data);
+        //         metric_hops++;
+        //         metric_distance_computations+=size;
+
+        //         tableint *datal = (tableint *) (data + 1);
+        //         for (int i = 0; i < size; i++) {
+        //             tableint cand = datal[i];
+        //             if (cand < 0 || cand > max_elements_)
+        //                 throw std::runtime_error("cand error");
+        //             dist_t d = fstdistfunc_(query_data, getDataByInternalId(cand), dist_func_param_);
+
+        //             if (d < curdist) {
+        //                 curdist = d;
+        //                 currObj = cand;
+        //                 changed = true;
+        //             }
+        //         }
+        //     }
+        // }
+        // directly find currObj via neighbors
+        std::unordered_set<labeltype> nbrs = graph_rel->getKHopNodes(label, 1);
+        tableint currObj = getExternalLabel(*(nbrs.begin()));
+
+        bool bare_bone_search = !num_deleted_ && !isIdAllowed;
+        std::priority_queue<HopNbrTrible<float>, std::vector<HopNbrTrible<float>>> top_candidates;
+        if (bare_bone_search) {
+            top_candidates = searchBaseLayerMixM<true>(
+                    currObj, query_data, std::max(ef_, k), khop_nbrs, isIdAllowed);
+        } else {
+            top_candidates = searchBaseLayerMixM<false>(
+                    currObj, query_data, std::max(ef_, k), khop_nbrs, isIdAllowed);
+        }
+
+        while (top_candidates.size() > k) {
+            top_candidates.pop();
+        }
+        while (top_candidates.size() > 0) {
+            HopNbrTrible<float> rez = top_candidates.top();
+            result.push(std::pair<dist_t, labeltype>(rez.dist, getExternalLabel(rez.id)));
+            top_candidates.pop();
+        }
+
+        // std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
+        // if (bare_bone_search) {
+        //     top_candidates = searchBaseLayerST<true>(
+        //             currObj, query_data, std::max(ef_, k), isIdAllowed);
+        // } else {
+        //     top_candidates = searchBaseLayerST<false>(
+        //             currObj, query_data, std::max(ef_, k), isIdAllowed);
+        // }
+
+        // while (top_candidates.size() > k) {
+        //     top_candidates.pop();
+        // }
+        // while (top_candidates.size() > 0) {
+        //     std::pair<dist_t, tableint> rez = top_candidates.top();
+        //     result.push(std::pair<dist_t, labeltype>(rez.first, getExternalLabel(rez.second)));
+        //     top_candidates.pop();
+        // }
+        return result;
+    }
+
+    std::priority_queue<std::pair<dist_t, labeltype >>
+    searchKnnMixMDV2(const void *query_data, size_t k, labeltype label, const std::unordered_set<tableint> &khop_nbrs, BaseFilterFunctor* isIdAllowed = nullptr) const {
+        std::priority_queue<std::pair<dist_t, labeltype >> result;
+        if (cur_element_count == 0) return result;
+        
+        std::unordered_set<labeltype> nbr_labels = graph_rel->getKHopNodes(label, 1);
+
+        // tableint currObj = enterpoint_node_;
+        // dist_t curdist = fstdistfunc_(query_data, getDataByInternalId(enterpoint_node_), dist_func_param_);
+
+        // for (int level = maxlevel_; level > 0; level--) {
+        //     bool changed = true;
+        //     while (changed) {
+        //         changed = false;
+        //         unsigned int *data;
+
+        //         data = (unsigned int *) get_linklist(currObj, level);
+        //         int size = getListCount(data);
+        //         metric_hops++;
+        //         metric_distance_computations+=size;
+
+        //         tableint *datal = (tableint *) (data + 1);
+        //         for (int i = 0; i < size; i++) {
+        //             tableint cand = datal[i];
+        //             if (cand < 0 || cand > max_elements_)
+        //                 throw std::runtime_error("cand error");
+        //             dist_t d = fstdistfunc_(query_data, getDataByInternalId(cand), dist_func_param_);
+
+        //             if (d < curdist) {
+        //                 curdist = d;
+        //                 currObj = cand;
+        //                 changed = true;
+        //             }
+        //         }
+        //     }
+        // }
+        // directly find currObj via neighbors
+
+
+        bool bare_bone_search = !num_deleted_ && !isIdAllowed;
+        std::priority_queue<HopNbrTrible<float>, std::vector<HopNbrTrible<float>>> top_candidates;
+        if (bare_bone_search) {
+            top_candidates = searchBaseLayerMixMD<true>(
+                    nbr_labels, query_data, std::max(ef_, k), khop_nbrs, isIdAllowed);
+        } else {
+            top_candidates = searchBaseLayerMixMD<false>(
+                nbr_labels, query_data, std::max(ef_, k), khop_nbrs, isIdAllowed);
+        }
+
+        while (top_candidates.size() > k) {
+            top_candidates.pop();
+        }
+        while (top_candidates.size() > 0) {
+            HopNbrTrible<float> rez = top_candidates.top();
+            result.push(std::pair<dist_t, labeltype>(rez.dist, getExternalLabel(rez.id)));
+            top_candidates.pop();
+        }
+
+        // std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
+        // if (bare_bone_search) {
+        //     top_candidates = searchBaseLayerST<true>(
+        //             currObj, query_data, std::max(ef_, k), isIdAllowed);
+        // } else {
+        //     top_candidates = searchBaseLayerST<false>(
+        //             currObj, query_data, std::max(ef_, k), isIdAllowed);
+        // }
+
+        // while (top_candidates.size() > k) {
+        //     top_candidates.pop();
+        // }
+        // while (top_candidates.size() > 0) {
+        //     std::pair<dist_t, tableint> rez = top_candidates.top();
+        //     result.push(std::pair<dist_t, labeltype>(rez.first, getExternalLabel(rez.second)));
+        //     top_candidates.pop();
+        // }
+        return result;
+    }
 
     std::vector<std::pair<dist_t, labeltype >>
     searchStopConditionClosest(

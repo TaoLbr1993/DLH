@@ -3,8 +3,53 @@
 #include <unordered_set>
 #include <random>
 #include <vector>
+#include <unordered_set>
 
 namespace hnswlib {
+
+    // compare struct and operator: used in searchKnn
+    template<typename dist_t>
+    class HopNbrTrible {
+    public:
+        bool in_hop = false;
+        dist_t dist;
+        tableint id;
+        HopNbrTrible(bool in_hop_, dist_t dist_, tableint id_):in_hop(in_hop_), dist(dist_), id(id_){}
+    };
+
+    template<typename dist_t>
+    bool operator<(const HopNbrTrible<dist_t> &a, const HopNbrTrible<dist_t> &b) {
+        // std::cout << (int)(!(a.in_hop)) << " " << (int)(!(b.in_hop)) << std::endl;
+        // return (int)(!(a.in_hop))*0.05+a.dist < (int)(!(b.in_hop))*0.1+b.dist;
+        return a.dist < b.dist;
+        if (a.in_hop && !b.in_hop) return false;
+        if (!a.in_hop && b.in_hop) return true;
+        return a.dist < b.dist;
+    }
+
+    template<typename dist_t>
+    class HopNbrTribleV2 {
+        public:
+            int hop_range;
+            int hop;
+            dist_t dist;
+            tableint id;
+
+        HopNbrTribleV2(int hop_range_, int hop_, dist_t dist_, tableint id_):hop_range(hop_range_), hop(hop_), dist(dist_), id(id_){}
+    };
+
+    template<typename dist_t>
+    bool operator<(const HopNbrTribleV2<dist_t> &a, const HopNbrTribleV2<dist_t> &b) {
+        // std::cout << (int)(!(a.in_hop)) << " " << (int)(!(b.in_hop)) << std::endl;
+        // return (int)(!(a.in_hop))*0.05+a.dist < (int)(!(b.in_hop))*0.1+b.dist;
+        // return a.dist < b.dist;
+
+        if ((a.hop >= -a.hop_range && b.hop >= -b.hop_range) || (a.hop < a.hop_range && b.hop < b.hop_range)) return a.dist < b.dist;
+        return (a.hop < b.hop);
+        if (a.hop < b.hop) return true;
+        if (a.hop > b.hop) return false;
+        return a.dist < b.dist;
+    }
 
     //todo: generate a interface
     class GraphRelationSampler {
@@ -12,6 +57,7 @@ namespace hnswlib {
         float prob;
         std::unordered_map<labeltype, size_t> id_start_point_map;
         std::unordered_map<labeltype, unsigned int> offset_map;
+        std::vector<std::pair<int, int>> edge_pairs;
         size_t * end_points{nullptr};
         // endpoints of id1 + endpoints of id2 + ...
 
@@ -25,6 +71,7 @@ namespace hnswlib {
                 delete[] end_points;
                 end_points = nullptr;
             }
+            edge_pairs.clear();
         }
 
         void genRelation(size_t* ids, size_t num_ids) {
@@ -40,9 +87,8 @@ namespace hnswlib {
             // 邻接表暂存一下
             std::vector<std::vector<size_t>> edges(num_ids);
 
-            // 生成随机种子并使用种子初始化随机数生成器
-            std::random_device rd;
-            std::default_random_engine rng(rd());
+            // 随机数生成器，固定种子以保证可复现
+            std::default_random_engine rng(42);
             // 使用均匀分布生成随机数
             std::uniform_real_distribution<float> distrib(0.0f, 1.0f);
 
@@ -51,6 +97,7 @@ namespace hnswlib {
                 for (size_t j = i + 1; j < num_ids; j++) {
                     float s = distrib(rng);
                     if (s < prob) {
+                        edge_pairs.push_back(std::make_pair((int)ids[i], (int)ids[j]));
                         // 添加无向边
                         edges[i].push_back(ids[j]);
                         edges[j].push_back(ids[i]);
@@ -117,6 +164,14 @@ namespace hnswlib {
             writeBinaryPOD(output, totalEdges);
             output.write((char*)end_points, sizeof(size_t) * totalEdges);
 
+            // 保存 edge_pairs 大小和内容
+            size_t edgePairsSize = edge_pairs.size();
+            writeBinaryPOD(output, edgePairsSize);
+            for (const auto& p : edge_pairs) {
+                writeBinaryPOD(output, p.first);
+                writeBinaryPOD(output, p.second);
+            }
+
             output.close();
         }
 
@@ -168,7 +223,148 @@ namespace hnswlib {
                 end_points = nullptr;
             }
 
+            // 读取 edge_pairs
+            size_t edgePairsSize = 0;
+            readBinaryPOD(input, edgePairsSize);
+            edge_pairs.clear();
+            edge_pairs.reserve(edgePairsSize);
+            for (size_t i = 0; i < edgePairsSize; ++i) {
+                int u, v;
+                readBinaryPOD(input, u);
+                readBinaryPOD(input, v);
+                edge_pairs.emplace_back(u, v);
+            }
+
             input.close();
+        }
+
+        // 根据给定的 id 和 k 值，获取 k-hop 节点集合（最多经过 k 条边到达的节点，不包括自身）
+        std::unordered_set<labeltype> getKHopNodes(labeltype id, int k) {
+            auto it_start = id_start_point_map.find(0);
+            std::unordered_set<labeltype> result;
+            std::unordered_set<labeltype> visited;
+            std::unordered_set<labeltype> current_level;
+            current_level.insert(id);
+            visited.insert(id);
+            for (int hop = 0; hop < k; hop++) {
+                std::unordered_set<labeltype> next_level;
+
+                for (const auto& node : current_level) {
+                    auto it_start = id_start_point_map.find(node);
+                    auto it_offset = offset_map.find(node);
+                    if (it_start == id_start_point_map.end() || it_offset == offset_map.end()) continue;
+                    size_t start = it_start->second;
+                    unsigned int offset = it_offset->second;
+                    for (size_t i = 0; i < offset; i++) {
+                        labeltype neighbor = end_points[start + i];
+                        if (visited.find(neighbor) == visited.end()) {
+                            next_level.insert(neighbor);
+                            visited.insert(neighbor);
+                        }
+                    }
+                }
+                if (next_level.empty()) break;
+                result.insert(next_level.begin(), next_level.end());
+                current_level = std::move(next_level);
+            }
+            return result;
+        }
+
+        std::unordered_map<labeltype, int> getKHopNodesWiDist(labeltype id, int k) {
+            std::unordered_map<labeltype, int> result;
+            std::unordered_set<labeltype> visited;
+            std::unordered_set<labeltype> current_level;
+
+            current_level.insert(id);
+            visited.insert(id);
+
+            for (int hop=0; hop<k; hop++) {
+                std::unordered_set<labeltype> next_level;
+                for (const auto& node: current_level) {
+
+                    auto it_start = id_start_point_map.find(node);
+                    auto it_offset = offset_map.find(node);
+                    if (it_start == id_start_point_map.end() || it_offset == offset_map.end()) continue;
+                    
+                    size_t start = it_start->second;
+                    unsigned int offset = it_offset->second;
+                    for (size_t i=0; i < offset; i++) {
+                        labeltype neighbor = end_points[start+i];
+                        if (visited.find(neighbor) == visited.end()) {
+                            next_level.insert(neighbor);
+                            visited.insert(neighbor);
+                            result.emplace(neighbor, hop+1);
+                        }
+                    }
+                }
+                if (next_level.empty()) break;
+                current_level = std::move(next_level);
+            }
+            return result;
+        }
+
+        struct CompareByFirst {
+            constexpr bool operator()(std::pair<int, labeltype> const& a,
+                std::pair<int, labeltype> const& b) const noexcept {
+                return a.first < b.first;
+            }
+        };
+        std::unordered_set<labeltype> getMaxDegreeNodes(int k) {
+            std::priority_queue<std::pair<int, labeltype>, std::vector<std::pair<int, labeltype>>, CompareByFirst> node_pq;
+            for (auto kv: offset_map) {
+                node_pq.emplace(kv.second, kv.first);
+                if (node_pq.size() > k) {
+                    node_pq.pop();
+                }
+            }
+            std::unordered_set<labeltype> result;
+            while (node_pq.size() > 0){
+                result.insert(node_pq.top().second);
+                node_pq.pop();
+            }
+            return result;
+        }
+    
+        void printInfo() {
+            std::cout << "GraphRelationSampler info: " << std::endl;
+            std::cout << "  prob: " << prob << std::endl;
+
+            // 基础统计
+            size_t nodes_with_edges = id_start_point_map.size();
+            size_t totalAdjEntries = 0; // CSR 中的邻接条目数（度数之和）
+            for (const auto& kv : offset_map) {
+                totalAdjEntries += kv.second;
+            }
+            size_t undirectedEdges = edge_pairs.size(); // 生成时存了一次无向边(i,j)
+
+            std::cout << "  number of nodes with edges: " << nodes_with_edges << std::endl;
+            std::cout << "  undirected edges (edge_pairs): " << undirectedEdges << std::endl;
+            std::cout << "  adjacency entries (CSR): " << totalAdjEntries << std::endl;
+
+            // 内存占用
+            auto toMB = [](size_t bytes) { return bytes / (1024.0 * 1024.0); };
+
+            size_t endPointsBytes = totalAdjEntries * sizeof(size_t);
+            size_t idMapDataBytes = id_start_point_map.size() * (sizeof(labeltype) + sizeof(size_t));
+            size_t offsetMapDataBytes = offset_map.size() * (sizeof(labeltype) + sizeof(unsigned int));
+            size_t edgePairsBytes = edge_pairs.capacity() * sizeof(std::pair<int,int>);
+
+            size_t totalApproxBytes = endPointsBytes + idMapDataBytes + offsetMapDataBytes + edgePairsBytes;
+
+            std::cout << "  memory usage (approx.):" << std::endl;
+            std::cout << "    end_points: " << endPointsBytes << " B (" << toMB(endPointsBytes) << " MB)" << std::endl;
+            std::cout << "    id_start_point_map data: " << idMapDataBytes << " B (" << toMB(idMapDataBytes) << " MB) [no container overhead]" << std::endl;
+            std::cout << "    offset_map data: " << offsetMapDataBytes << " B (" << toMB(offsetMapDataBytes) << " MB) [no container overhead]" << std::endl;
+            std::cout << "    edge_pairs capacity: " << edgePairsBytes << " B (" << toMB(edgePairsBytes) << " MB)" << std::endl;
+            std::cout << "  total approx: " << totalApproxBytes << " B (" << toMB(totalApproxBytes) << " MB)" << std::endl;
+
+            // 哈希表负载信息
+            std::cout << "  id_start_point_map: size=" << id_start_point_map.size()
+                      << ", buckets=" << id_start_point_map.bucket_count()
+                      << ", load_factor=" << id_start_point_map.load_factor() << std::endl;
+            std::cout << "  offset_map: size=" << offset_map.size()
+                      << ", buckets=" << offset_map.bucket_count()
+                      << ", load_factor=" << offset_map.load_factor() << std::endl;
         }
     };
 }

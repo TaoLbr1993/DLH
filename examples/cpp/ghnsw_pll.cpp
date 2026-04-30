@@ -20,6 +20,18 @@ private:
     const std::unordered_set<hnswlib::labeltype>& khop_neighbors;
 };
 
+class PLLFilter : public hnswlib::BaseFilterFunctor {
+    public:
+    int src_id;
+    int qhop;
+    hnswlib::PrunedLandmarkLabeling<0> * pllidx;
+    PLLFilter(int src_id_, int qhop_, hnswlib::PrunedLandmarkLabeling<0>* pll_index) : src_id(src_id_), qhop(qhop_), pllidx(pll_index) {}
+
+    bool operator() (hnswlib::labeltype id) override {
+        return pllidx->QueryDistance(src_id, id)<=qhop;
+    }
+};
+
 // 封装近似搜索函数
 std::priority_queue<std::pair<float, hnswlib::labeltype>>
 searchKnnFilterV1(const void* query_data, size_t k, hnswlib::labeltype query_label, 
@@ -166,14 +178,17 @@ void analyzeKHopDistribution(hnswlib::GraphRelationSampler& grs, int max_element
 
 int main() {
     int dim = 32;               // 维度
-    int max_elements = 50000;   // 最大元素数
-    int M = 16;                 // 最大连接数
-    int ef_construction = 100;  
+    int max_elements = 30000;   // 最大元素数
+    int M = 12;                 // 最大连接数
+
+    int nbrM = 4;
+
+    int ef_construction = 200;  
     int k_query = 50;           // 查询时返回的邻居数
     int num_queries = 100;      // 测试查询次数
 
-    int k_hop = 5 ;              // k-hop参数
-    float prob = 0.00014;          // 建边概率
+    int k_hop = 4 ;              // k-hop参数
+    float prob = 0.0001;          // 建边概率
 
     // 定义跳数划分，各部分之和等于k_hop
     // std::vector<int> hop_partitions = {1,1,1,1};
@@ -225,70 +240,27 @@ int main() {
     auto bf_build_time = std::chrono::duration_cast<std::chrono::milliseconds>(build_end - build_start).count();
     std::cout << "暴力搜索索引构建完成，耗时: " << bf_build_time << " 毫秒" << std::endl;
 
-    // // 初始化单层图索引
-    // std::cout << "正在构建单层图索引..." << std::endl;
-    // build_start = std::chrono::high_resolution_clock::now();
-
-    // // ghnsw_indices[i] 为跳数 i 对应的单层图索引
-    // std::vector<hnswlib::GraphHNSW<float>*> ghnsw_indices(k_hop + 1, nullptr); // 索引0留空，从1开始
-
-    // // 获取需要构建的唯一跳数
-    // std::unordered_set<int> unique_hops(hop_partitions.begin(), hop_partitions.end());
-
-    // // 只为不同的跳数构建索引
-    // for (int hop : unique_hops) {
-    //     std::cout << "  构建跳数 = " << hop << " 的索引..." << std::endl;
-    //     hnswlib::GraphHNSW<float>* hop_index = new hnswlib::GraphHNSW<float>(&space, max_elements, M, ef_construction);
-        
-    //     // 设置图关系和对应的hop参数
-    //     hop_index->setGraphHop(&grs, hop);
-        
-    //     // 使用addPointLimit添加数据点
-    //     for (int j = 0; j < max_elements; j++) {
-    //         hop_index->addPointLimit(data + j * dim, j, false);
-    //     }
-        
-    //     ghnsw_indices[hop] = hop_index; // 存储到对应跳数的位置
-    // }
-
-    // build_end = std::chrono::high_resolution_clock::now();
-    // auto ghnsw_build_time = std::chrono::duration_cast<std::chrono::milliseconds>(build_end - build_start).count();
-    // std::cout << "单层图索引构建完成，耗时: " << ghnsw_build_time << " 毫秒" << std::endl;
-
-    // // 创建HNSWGDist 索引
-    // int hnsw_hopk = 2;
-    // std::cout << "正在构建HNSWGDist..." << std::endl;
-    // build_start = std::chrono::high_resolution_clock::now();
-    // hnswlib::HNSWGDist<float>* hnswgdist_index = new hnswlib::HNSWGDist<float>(&space, max_elements, M, ef_construction);
-    // hnswgdist_index->setGraphHop(&grs, k_hop, hnsw_hopk);
-    // for (int j=0; j < max_elements; j++) {
-    //     hnswgdist_index->addPoint(data + j * dim, j);
-    // }
-    // hnswgdist_index->setGDist();
-
-    // build_end = std::chrono::high_resolution_clock::now();
-    // auto hnswgdist_build_time = std::chrono::duration_cast<std::chrono::milliseconds>(build_end - build_start).count();
-    // std::cout << "暴力搜索索引构建完成，耗时: " << hnswgdist_build_time << " 毫秒" << std::endl;
-
-
-    // 创建MixM HNSW索引
-    std::cout << "正在构建MixM HNSW索引..." << std::endl;
+    // 创建HNSW+PLL
+    std::cout << "正在构建HNSW+PLL..." << std::endl;
     build_start = std::chrono::high_resolution_clock::now();
-    hnswlib::HNSWMixM<float>* mixm_index = new hnswlib::HNSWMixM<float>(&space, max_elements, M, ef_construction);
-    mixm_index->setGraphHop(&grs, k_hop, 0);
-    for (int i=0; i<max_elements; i++) {
-        mixm_index->addPointMixM(data + i * dim, i);
-        // mixm_index->addPoint(data + i * dim, i);
+    hnswlib::HierarchicalNSW<float>* hnsw_pll_index = new hnswlib::HierarchicalNSW<float>(&space, max_elements, M, ef_construction);
+    for (int i = 0; i < max_elements; i++) {
+        hnsw_pll_index->addPoint(data + i * dim, i);
     }
+    hnswlib::PrunedLandmarkLabeling<0> pll_index;
+    pll_index.ConstructIndex(grs.edge_pairs);
+    // pll_index.PrintStatistics();
     build_end = std::chrono::high_resolution_clock::now();
-    auto mixm_build_time = std::chrono::duration_cast<std::chrono::milliseconds>(build_end - build_start).count();
+    auto hnswpll_build_time = std::chrono::duration_cast<std::chrono::milliseconds>(build_end - build_start).count();
+    std::cout << "暴力搜索索引构建完成，耗时: " << bf_build_time << " 毫秒" << std::endl;
+
 
     // 召回率
     double total_recall_with_filter = 0.0;
     double total_recall_no_filter = 0.0;
     double total_recall_ghnsw = 0.0;
     double total_recall_hnswgdist = 0.0;
-    double total_recall_mixm = 0.0;
+    double total_recall_hnswpll = 0.0;
     
     // 查询时间
     double total_time_hnsw_filter = 0.0;      // HNSW带过滤器的总查询时间
@@ -296,7 +268,7 @@ int main() {
     double total_time_bf = 0.0;               // 暴力搜索的总查询时间
     double total_time_ghnsw = 0.0;      // 单层图索引的总查询时间
     double total_time_hnswgdist = 0.0;
-    double total_time_mixm = 0.0;
+    double total_time_hnswpll = 0.0;
 
     // 随机选择查询点进行测试
     std::cout << "\n开始评估性能..." << std::endl;
@@ -316,8 +288,8 @@ int main() {
         // 创建过滤器
         KHopFilter hnswbf_filter(khop_nbr_hnswbf);
         
-        auto t1 = std::chrono::high_resolution_clock::now();
         // 使用过滤器进行搜索
+        auto t1 = std::chrono::high_resolution_clock::now();
         auto approximate_results_filtered = normal_index->searchKnn(query_vector, k_query, &hnswbf_filter);
         //  = searchKnnFilter(query_vector, k_query, query_label, normal_index, &grs, k_hop);
         auto t2 = std::chrono::high_resolution_clock::now();
@@ -343,6 +315,8 @@ int main() {
             exact_results_copy.pop();
         }
         
+        total_time_bf += exact_time;
+
         // 计算带过滤器HNSW的召回率
         int matches_filtered = 0;
         auto approx_results_filtered_copy = approximate_results_filtered;
@@ -377,34 +351,27 @@ int main() {
         total_recall_no_filter += recall_unfiltered;
         total_time_hnsw_no_filter += approx_time_unfiltered;
 
-        // ==================== MIXM HNSW ====================
-        std::unordered_set<hnswlib::labeltype> khop_nbr_mixm = grs.getKHopNodes(query_label, k_hop); 
-        KHopFilter mixmfilter(khop_nbr_mixm);
-        std::unordered_set<hnswlib::tableint> nbrs_ti = mixm_index->getInternalIdSet(khop_nbr_mixm);
+        // 计算HNSW-PLL
+        PLLFilter hnswpll_filter(query_label, k_hop, &pll_index);
         t1 = std::chrono::high_resolution_clock::now();
-        std::priority_queue<std::pair<float, hnswlib::labeltype>> mixm_results =
-        mixm_index->searchKnnMixM(query_vector, k_query, nbrs_ti, &mixmfilter);
-        // std::priority_queue<std::pair<float, hnswlib::labeltype>> mixm_results =
-        // mixm_index->searchKnnMixMDV2(query_vector, k_query, query_label, nbrs_ti, &mixmfilter);
-        t2 = std::chrono::high_resolution_clock::now();
-        auto mixm_time = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
 
-        verifyResults(mixm_results, khop_nbr, query_label, "MIXM HNSW");
+        auto approximate_results_hnswpll = normal_index->searchKnn(query_vector, k_query, &hnswpll_filter);
+        auto t2_hnswpll = std::chrono::high_resolution_clock::now();
+        auto approx_time_hnswpll = std::chrono::duration_cast<std::chrono::microseconds>(t2_hnswpll - t1).count();
+        
+        verifyResults(exact_results, khop_nbr, query_label, "暴力搜索");
 
-        int matches_mixm = 0;
-        auto mixm_results_copy = mixm_results;
-        while (!mixm_results_copy.empty()) {
-            if (exact_labels.count(mixm_results_copy.top().second) > 0) {
-                matches_mixm++;
+        // 计算HNSW-PLL
+        int matches_hnswpll = 0;
+        auto approx_results_hnswpll_copy = approximate_results_hnswpll;
+        while (!approx_results_hnswpll_copy.empty()) {
+            if (exact_labels.count(approx_results_hnswpll_copy.top().second) > 0) {
+                matches_hnswpll++;
             }
-            mixm_results_copy.pop();
+            approx_results_hnswpll_copy.pop();
         }
-
-        double recall_mixm = (double)matches_mixm / k_query;
-        total_recall_mixm += recall_mixm;
-        total_time_mixm += mixm_time;
-
-        total_time_bf += exact_time;
+        total_recall_hnswpll += ((double)matches_hnswpll / k_query);
+        total_time_hnswpll += approx_time_hnswpll;
 
         // 进度显示
         if ((i + 1) % 10 == 0) {
@@ -424,16 +391,11 @@ int main() {
     std::cout << "HNSW不带过滤器:     " << std::setw(14) << hnsw_build_time 
           << std::setw(16) << (total_time_hnsw_no_filter / num_queries)
           << std::setw(12) << (total_recall_no_filter / num_queries * 100) << std::endl;
-    // std::cout << "单层图索引:         " << std::setw(14) << ghnsw_build_time 
-    //       << std::setw(16) << (total_time_ghnsw / num_queries)
-    //       << std::setw(12) << (total_recall_ghnsw / num_queries * 100) << std::endl;
-    // std::cout << "GDist索引:         " << std::setw(14) << ghnsw_build_time 
-    //       << std::setw(16) << (total_time_hnswgdist / num_queries)
-    //       << std::setw(12) << (total_recall_hnswgdist / num_queries * 100) << std::endl;
-    std::cout << "MIXM HNSW:          " << std::setw(14) << mixm_build_time 
-          << std::setw(16) << (total_time_mixm / num_queries)
-          << std::setw(12) << (total_recall_mixm / num_queries * 100) << std::endl;
- 
+
+    std::cout << "HNSW-PLL:     " << std::setw(14) << hnswpll_build_time 
+          << std::setw(16) << (total_time_hnswpll / num_queries)
+          << std::setw(12) << (total_recall_hnswpll / num_queries * 100) << std::endl;
+
     // 在main函数结束前调用
     analyzeKHopDistribution(grs, max_elements, 5); // 分析1到5跳的邻居分布
 

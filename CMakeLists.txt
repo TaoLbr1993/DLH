@@ -53,66 +53,85 @@ if(HNSWLIB_EXAMPLES)
       SET( CMAKE_CXX_FLAGS  "/O2 -DHAVE_CXX0X /W1 /openmp /EHsc" )
     endif()
 
-    # examples
-    add_executable(example_search examples/cpp/example_search.cpp)
-    target_link_libraries(example_search hnswlib)
+    # 添加 ACORN
+    # ACORN 安装路径
+    set(ACORN_FAISS_DIR "$ENV{HOME}/.local")
+    # 使用 ACORN 的 Faiss（用 find_package，导入的目标名通常是 faiss 或 faiss::faiss）
+    find_package(faiss REQUIRED PATHS "${ACORN_FAISS_DIR}" NO_DEFAULT_PATH)
 
-    add_executable(example_epsilon_search examples/cpp/example_epsilon_search.cpp)
-    target_link_libraries(example_epsilon_search hnswlib)
+    # add_executable(ghnsw_test examples/cpp/ghnsw_test.cpp)
+    # target_link_libraries(ghnsw_test hnswlib faiss)
+    # add_executable(acorn_test examples/cpp/acorn_test.cpp)
+    # target_link_libraries(acorn_test hnswlib faiss)
 
-    add_executable(example_multivector_search examples/cpp/example_multivector_search.cpp)
-    target_link_libraries(example_multivector_search hnswlib)
+    # 添加 Navix
+    set(NAVIX_BASE_DIRS "$ENV{HOME}/faiss-navix")
+    add_library(navix STATIC IMPORTED)
+    set_target_properties(navix PROPERTIES
+    IMPORTED_LOCATION ${NAVIX_BASE_DIRS}/build/faiss/libfaiss.a
+    INTERFACE_INCLUDE_DIRECTORIES ${NAVIX_BASE_DIRS})
 
-    add_executable(example_filter examples/cpp/example_filter.cpp)
-    target_link_libraries(example_filter hnswlib)
+    find_package(BLAS REQUIRED)
+    set(BLAS_LIB_TARGET BLAS::BLAS)
 
-    add_executable(example_replace_deleted examples/cpp/example_replace_deleted.cpp)
-    target_link_libraries(example_replace_deleted hnswlib)
+    # add_executable(navix_test examples/cpp/navix_test.cpp)
+    # target_link_libraries(navix_test hnswlib navix ${BLAS_LIB_TARGET})
 
-    add_executable(example_mt_search examples/cpp/example_mt_search.cpp)
-    target_link_libraries(example_mt_search hnswlib)
 
-    add_executable(example_mt_filter examples/cpp/example_mt_filter.cpp)
-    target_link_libraries(example_mt_filter hnswlib)
+    # 生成 groundtruth
+    add_executable(gen_groundtruth data/gen_groundtruth.cpp)
+    target_link_libraries(gen_groundtruth hnswlib)
 
-    add_executable(example_mt_replace_deleted examples/cpp/example_mt_replace_deleted.cpp)
-    target_link_libraries(example_mt_replace_deleted hnswlib)
+    # baseline
 
-    # tests
-    add_executable(multivector_search_test tests/cpp/multivector_search_test.cpp)
-    target_link_libraries(multivector_search_test hnswlib)
+    # hnsw
+    add_executable(baseline_hnsw data/baseline/baseline_hnsw.cpp)
+    target_link_libraries(baseline_hnsw hnswlib)
 
-    add_executable(epsilon_search_test tests/cpp/epsilon_search_test.cpp)
-    target_link_libraries(epsilon_search_test hnswlib)
+    # navix
+    add_executable(baseline_navix data/baseline/baseline_navix.cpp)
+    target_link_libraries(baseline_navix hnswlib navix ${BLAS_LIB_TARGET})
 
-    add_executable(test_updates tests/cpp/updates_test.cpp)
-    target_link_libraries(test_updates hnswlib)
+    # acorn
+    add_executable(baseline_acorn data/baseline/baseline_acorn.cpp)
+    target_link_libraries(baseline_acorn hnswlib faiss)
 
-    add_executable(searchKnnCloserFirst_test tests/cpp/searchKnnCloserFirst_test.cpp)
-    target_link_libraries(searchKnnCloserFirst_test hnswlib)
+    # DLH
+    add_executable(dlh data/baseline/dlh.cpp)
+    target_link_libraries(dlh hnswlib)
 
-    add_executable(searchKnnWithFilter_test tests/cpp/searchKnnWithFilter_test.cpp)
-    target_link_libraries(searchKnnWithFilter_test hnswlib)
+    # DLH-M
+    add_executable(dlh-m data/baseline/dlh-m.cpp)
+    target_link_libraries(dlh-m hnswlib)
 
-    add_executable(multiThreadLoad_test tests/cpp/multiThreadLoad_test.cpp)
-    target_link_libraries(multiThreadLoad_test hnswlib)
+    # DAL
+    add_executable(dal data/baseline/dal.cpp)
+    target_link_libraries(dal hnswlib)
 
-    add_executable(multiThread_replace_test tests/cpp/multiThread_replace_test.cpp)
-    target_link_libraries(multiThread_replace_test hnswlib)
+    # bf
+    add_executable(baseline_bf data/baseline/baseline_bf.cpp)
+    target_link_libraries(baseline_bf hnswlib)
 
-    add_executable(main tests/cpp/main.cpp tests/cpp/sift_1b.cpp)
-    target_link_libraries(main hnswlib)
 
-    add_executable(flex_gen_graph examples/cpp/flex_gen_graph.cpp)
-    target_link_libraries(flex_gen_graph hnswlib)
+    # # ghnsw_psl
+    # add_executable(ghnsw_psl examples/cpp/ghnsw_psl.cpp)
+    # target_link_libraries(ghnsw_psl hnswlib)
 
-    add_executable(flex_gen_2d examples/cpp/flex_gen_2d.cpp)
-    target_link_libraries(flex_gen_2d hnswlib)
+    # # 仅对 g++ 构建的 ghnsw_psl 开启调试信息并关闭优化
+    # if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    #   target_compile_options(ghnsw_psl PRIVATE -g -ggdb3 -O0 -fno-omit-frame-pointer)
+    #   target_link_options(ghnsw_psl PRIVATE -Wl,--build-id)
+    # endif()
 
-    # hnsw-flex
-    add_executable(ghnsw_example_filter examples/cpp/ghnsw_example_filter.cpp)
-    target_link_libraries(ghnsw_example_filter hnswlib)
+    # add_executable(ghnsw_pll examples/cpp/ghnsw_pll.cpp)
+    # target_link_libraries(ghnsw_pll hnswlib)
 
-    add_executable(phnsw_example_filter examples/cpp/phnsw_example_filter.cpp)
-    target_link_libraries(phnsw_example_filter hnswlib)
+    # add_executable(ghnsw_breaker examples/cpp/ghnsw_breaker.cpp)
+    # target_link_libraries(ghnsw_breaker hnswlib)
+
+    # add_executable(phnsw_example_filter examples/cpp/phnsw_example_filter.cpp)
+    # target_link_libraries(phnsw_example_filter hnswlib)
+
+    # add_executable(ghnsw_gdist examples/cpp/ghnsw_gdist.cpp)
+    # target_link_libraries(ghnsw_gdist hnswlib)
 endif()

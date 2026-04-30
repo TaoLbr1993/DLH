@@ -1,5 +1,5 @@
-#include <iostream>
 #include "../../hnswlib/hnswlib.h"
+#include <iostream>
 
 void print_gsampler_info(const hnswlib::GraphRelationSampler* gsampler, size_t print_count = 5) {
     std::cout << "当前 GraphRelationSampler 状态：" << std::endl;
@@ -36,6 +36,19 @@ void print_gsampler_info(const hnswlib::GraphRelationSampler* gsampler, size_t p
     std::cout << std::endl;
 }
 
+void test_getKHopNodes(hnswlib::GraphRelationSampler* gsampler, hnswlib::labeltype id, int k) {
+    std::cout << "测试 getKHopNodes, id = " << id << ", k = " << k << std::endl;
+    std::unordered_set<hnswlib::labeltype> kHopNodes = gsampler->getKHopNodes(id, k);
+    std::cout << "  k-hop 节点数量: " << kHopNodes.size() << std::endl;
+    std::cout << "  节点列表(前20个): ";
+    int cnt = 0;
+    for (auto v : kHopNodes) {
+        std::cout << v << " ";
+        if (++cnt >= 20) break;
+    }
+    std::cout << std::endl;
+}
+
 int main() {
     float p = 0.1;
     std::cout << "初始化 GraphRelationSampler，p = " << p << std::endl;
@@ -50,6 +63,11 @@ int main() {
     std::cout << "关系生成完成" << std::endl;
     print_gsampler_info(gsampler);
 
+    // 测试 getKHopNodes
+    test_getKHopNodes(gsampler, 0, 1);
+    test_getKHopNodes(gsampler, 0, 2);
+    test_getKHopNodes(gsampler, 1, 3);
+
     std::cout << "保存关系到 grel.bin..." << std::endl;
     gsampler->saveRelation("grel.bin");
     std::cout << "保存完成" << std::endl;
@@ -58,6 +76,11 @@ int main() {
     gsampler->loadRelation("grel.bin");
     std::cout << "加载完成" << std::endl;
     print_gsampler_info(gsampler);
+
+    // 再次测试 getKHopNodes
+    test_getKHopNodes(gsampler, 0, 1);
+    test_getKHopNodes(gsampler, 0, 2);
+    test_getKHopNodes(gsampler, 1, 3);
 
     delete[] ids;
     delete gsampler;

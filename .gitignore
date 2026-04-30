@@ -3,3 +3,21 @@ build/*
 
 # vscode config
 .vscode/c_cpp_properties.json
+.vscode/launch.json
+
+# Python cache
+__pycache__
+__pycache__/*
+
+figures
+figures/*
+
+logs
+logs/*
+
+questions.txt
+log.txt
+run.sh
+
+.vscode
+.vscode/*
