@@ -63,7 +63,7 @@ CONFIG: Dict = {
         "HNSW": "#348ABD",
         "ACORN": "#988ED5",
         "NAVIX": "#777777",
-        "Pre-Filtering": "#300AF2",
+        "Pre-Filter": "#300AF2",
     },
 
     # -------- Algorithm registry --------
@@ -120,10 +120,10 @@ CONFIG: Dict = {
             "markeredgewidth": 1.0,
             "visible": True,
         },
-        "Pre-Filtering": {
-            "label": "Pre-Filtering",
+        "Pre-Filter": {
+            "label": "Pre-Filter",
             "filenames": ["BF_stats.log"],
-            "color": "{PALETTE.Pre-Filtering}",
+            "color": "{PALETTE.Pre-Filter}",
             "marker": "x",
             "markersize": 2,
             "line_width": 1,
@@ -135,14 +135,14 @@ CONFIG: Dict = {
     # Which algorithms to draw per mode (and their ordering/z‑order precedence)
     "ORDERS": {
         "range": [
-            "DLH", "DLH-M", "HNSW", "ACORN", "NAVIX", "Pre-Filtering",
+            "DLH", "DLH-M", "HNSW", "ACORN", "NAVIX", "Pre-Filter",
         ],
         "tag": [
-            "DLH", "DLH-M", "HNSW", "ACORN", "NAVIX", "Pre-Filtering",
+            "DLH", "DLH-M", "HNSW", "ACORN", "NAVIX", "Pre-Filter",
         ],
         # Legend order (if you want a global legend); defaults to the union of above
         "legend": [
-            "DLH", "DLH-M", "HNSW", "ACORN", "NAVIX", "Pre-Filtering",
+            "DLH", "DLH-M", "HNSW", "ACORN", "NAVIX", "Pre-Filter",
         ],
     },
 
