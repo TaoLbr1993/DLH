@@ -49,5 +49,5 @@ python main_test.py
 
 
 
-DLH is built based on \[hnswlib](https://github.com/nmslib/hnswlib) and \[C++ Bloom filter library](https://github.com/ArashPartow/bloom).
+DLH is built based on [hnswlib](https://github.com/nmslib/hnswlib) and [C++ Bloom filter library](https://github.com/ArashPartow/bloom).
 
