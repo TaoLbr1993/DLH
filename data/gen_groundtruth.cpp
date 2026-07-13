@@ -29,6 +29,14 @@ static int k_hop_max = 3;
 // 新增映射参数
 static int map_group_size = 2; // 每 group_size 个原始向量映射为一个超级节点
 static std::string metric = "l2"; // 新增：距离度量 l2 / cosine
+static std::string graph_model = "er"; // er / lfr
+static int lfr_avg_degree = 15;
+static int lfr_max_degree = 100;
+static double lfr_degree_tau = 2.5;
+static double lfr_community_tau = 1.5;
+static double lfr_mu = 0.3;
+static size_t lfr_min_community_size = 20;
+static size_t lfr_max_community_size = 1000;
 // ========================================
 
 // 读取 fvecs 的维度与记录数
@@ -247,6 +255,14 @@ static void print_usage(const char* prog) {
     "  --k-hop-min H          hop 下界 (默认 " << k_hop_min << ")\n"
     "  --k-hop-max H          hop 上界 (默认 " << k_hop_max << ")\n"
     "  --map-group-size SIZE  映射分组大小 (默认 " << map_group_size << ")\n"
+    "  --graph-model MODEL    图生成模型: er / lfr (默认 " << graph_model << ")\n"
+    "  --lfr-avg-degree D     LFR 平均度目标 (默认 " << lfr_avg_degree << ")\n"
+    "  --lfr-max-degree D     LFR 最大度 (默认 " << lfr_max_degree << ")\n"
+    "  --lfr-degree-tau T     LFR 度分布幂律指数 tau1 (默认 " << lfr_degree_tau << ")\n"
+    "  --lfr-community-tau T  LFR 社区大小幂律指数 tau2 (默认 " << lfr_community_tau << ")\n"
+    "  --lfr-mu MU            LFR 跨社区边比例 mixing parameter (默认 " << lfr_mu << ")\n"
+    "  --lfr-min-community C  LFR 最小社区大小 (默认 " << lfr_min_community_size << ")\n"
+    "  --lfr-max-community C  LFR 最大社区大小 (默认 " << lfr_max_community_size << ")\n"
     "  --help                 显示帮助\n";
 }
 
@@ -286,6 +302,22 @@ static void parse_args(int argc, char** argv) {
             need_val(i); map_group_size = std::stoi(argv[++i]);
         } else if (key == "--metric") {
             need_val(i); metric = argv[++i];
+        } else if (key == "--graph-model") {
+            need_val(i); graph_model = argv[++i];
+        } else if (key == "--lfr-avg-degree") {
+            need_val(i); lfr_avg_degree = std::stoi(argv[++i]);
+        } else if (key == "--lfr-max-degree") {
+            need_val(i); lfr_max_degree = std::stoi(argv[++i]);
+        } else if (key == "--lfr-degree-tau") {
+            need_val(i); lfr_degree_tau = std::stod(argv[++i]);
+        } else if (key == "--lfr-community-tau") {
+            need_val(i); lfr_community_tau = std::stod(argv[++i]);
+        } else if (key == "--lfr-mu") {
+            need_val(i); lfr_mu = std::stod(argv[++i]);
+        } else if (key == "--lfr-min-community") {
+            need_val(i); lfr_min_community_size = static_cast<size_t>(std::stoll(argv[++i]));
+        } else if (key == "--lfr-max-community") {
+            need_val(i); lfr_max_community_size = static_cast<size_t>(std::stoll(argv[++i]));
         } else {
             std::cerr << "未知参数: " << key << std::endl;
             print_usage(argv[0]);
@@ -308,6 +340,18 @@ static void parse_args(int argc, char** argv) {
     if (!(metric == "l2" || metric == "cosine")) {
         std::cerr << "metric 仅支持 l2 或 cosine\n"; std::exit(1);
     }
+    if (!(graph_model == "er" || graph_model == "lfr")) {
+        std::cerr << "graph-model 仅支持 er 或 lfr\n"; std::exit(1);
+    }
+    if (lfr_avg_degree <= 0) { std::cerr << "lfr-avg-degree 必须为正数\n"; std::exit(1); }
+    if (lfr_max_degree <= 0) { std::cerr << "lfr-max-degree 必须为正数\n"; std::exit(1); }
+    if (lfr_max_degree < lfr_avg_degree) lfr_max_degree = lfr_avg_degree;
+    if (lfr_mu < 0.0 || lfr_mu > 1.0) {
+        std::cerr << "lfr-mu 必须在 [0, 1]，已修正到 0.3\n";
+        lfr_mu = 0.3;
+    }
+    if (lfr_min_community_size < 2) lfr_min_community_size = 2;
+    if (lfr_max_community_size < lfr_min_community_size) lfr_max_community_size = lfr_min_community_size;
 }
 
 // 向量归一化（用于 cosine）
@@ -342,7 +386,17 @@ int main(int argc, char** argv) {
               << "  k_hop_min=" << k_hop_min << "\n"
               << "  k_hop_max=" << k_hop_max << "\n"
               << "  map_group_size=" << map_group_size << "\n"
-              << "  metric=" << metric << "\n";
+              << "  metric=" << metric << "\n"
+              << "  graph_model=" << graph_model << "\n";
+    if (graph_model == "lfr") {
+        std::cout << "  lfr_avg_degree=" << lfr_avg_degree << "\n"
+                  << "  lfr_max_degree=" << lfr_max_degree << "\n"
+                  << "  lfr_degree_tau=" << lfr_degree_tau << "\n"
+                  << "  lfr_community_tau=" << lfr_community_tau << "\n"
+                  << "  lfr_mu=" << lfr_mu << "\n"
+                  << "  lfr_min_community_size=" << lfr_min_community_size << "\n"
+                  << "  lfr_max_community_size=" << lfr_max_community_size << "\n";
+    }
 
     // 1) 读取 base.fvecs
     int dim = 0; size_t N = 0;
@@ -395,13 +449,38 @@ int main(int argc, char** argv) {
         std::cout << "超级节点成员保存: " << members_path << std::endl;
     }
 
-    // 2) 基于概率的超级节点图抽样
-    std::cout << "生成概率图(超级节点级别): prob=" << prob << " ..." << std::endl;
+    // 2) 生成超级节点图
+    std::cout << "生成超级节点图: model=" << graph_model;
+    if (graph_model == "er") {
+        std::cout << ", prob=" << prob;
+    } else {
+        std::cout << ", avg_degree=" << lfr_avg_degree
+                  << ", max_degree=" << lfr_max_degree
+                  << ", tau1=" << lfr_degree_tau
+                  << ", tau2=" << lfr_community_tau
+                  << ", mu=" << lfr_mu
+                  << ", community=[" << lfr_min_community_size
+                  << "," << lfr_max_community_size << "]";
+    }
+    std::cout << " ..." << std::endl;
     hnswlib::GraphRelationSampler grs(prob);
     std::vector<size_t> super_ids(S);
     for (size_t i = 0; i < S; ++i) super_ids[i] = i;
     auto tg0 = std::chrono::high_resolution_clock::now();
-    grs.genRelation(super_ids.data(), S);
+    if (graph_model == "lfr") {
+        grs.genLFRRelation(super_ids.data(),
+                           S,
+                           lfr_avg_degree,
+                           lfr_max_degree,
+                           lfr_degree_tau,
+                           lfr_community_tau,
+                           lfr_mu,
+                           lfr_min_community_size,
+                           lfr_max_community_size,
+                           random_seed);
+    } else {
+        grs.genRelation(super_ids.data(), S);
+    }
     auto tg1 = std::chrono::high_resolution_clock::now();
     std::cout << "超级节点图生成完成，用时 "
               << std::chrono::duration_cast<std::chrono::seconds>(tg1 - tg0).count() << " s\n";
@@ -534,6 +613,14 @@ int main(int argc, char** argv) {
             meta << "N_total=" << N_total << "\n";
             meta << "N_used=" << N_used << "\n";
             meta << "prob=" << prob << "\n";
+            meta << "graph_model=" << graph_model << "\n";
+            meta << "lfr_avg_degree=" << lfr_avg_degree << "\n";
+            meta << "lfr_max_degree=" << lfr_max_degree << "\n";
+            meta << "lfr_degree_tau=" << lfr_degree_tau << "\n";
+            meta << "lfr_community_tau=" << lfr_community_tau << "\n";
+            meta << "lfr_mu=" << lfr_mu << "\n";
+            meta << "lfr_min_community_size=" << lfr_min_community_size << "\n";
+            meta << "lfr_max_community_size=" << lfr_max_community_size << "\n";
             meta << "topk=" << topk << "\n";
             meta << "k_query=" << k_query << "\n";
             // 记录 hop 的范围与 queries 文件格式

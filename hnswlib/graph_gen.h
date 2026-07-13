@@ -4,6 +4,9 @@
 #include <random>
 #include <vector>
 #include <unordered_set>
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
 
 namespace hnswlib {
 
@@ -124,6 +127,143 @@ namespace hnswlib {
                     end_points[pos++] = v;
                 }
             }
+        }
+
+        void genLFRRelation(size_t* ids,
+                            size_t num_ids,
+                            int avg_degree,
+                            int max_degree,
+                            double degree_tau,
+                            double community_tau,
+                            double mixing_mu,
+                            size_t min_community_size,
+                            size_t max_community_size,
+                            uint64_t seed) {
+            clear();
+            if (num_ids == 0) return;
+            if (num_ids == 1) {
+                std::vector<std::vector<size_t>> edges(1);
+                buildFromAdjacency(ids, edges);
+                return;
+            }
+
+            avg_degree = std::max(1, avg_degree);
+            max_degree = std::max(avg_degree, max_degree);
+            max_degree = std::min<int>(max_degree, static_cast<int>(num_ids) - 1);
+            degree_tau = degree_tau > 0.0 ? degree_tau : 2.5;
+            community_tau = community_tau > 0.0 ? community_tau : 1.5;
+            mixing_mu = std::max(0.0, std::min(1.0, mixing_mu));
+            min_community_size = std::max<size_t>(2, min_community_size);
+            max_community_size = std::max(min_community_size, max_community_size);
+            max_community_size = std::min(max_community_size, num_ids);
+
+            std::mt19937 rng(static_cast<uint32_t>(seed));
+            std::vector<size_t> order(num_ids);
+            for (size_t i = 0; i < num_ids; ++i) order[i] = i;
+            std::shuffle(order.begin(), order.end(), rng);
+
+            std::vector<size_t> community_sizes;
+            size_t remaining = num_ids;
+            while (remaining > 0) {
+                if (remaining <= max_community_size) {
+                    if (remaining < min_community_size && !community_sizes.empty()) {
+                        community_sizes.back() += remaining;
+                    } else {
+                        community_sizes.push_back(remaining);
+                    }
+                    break;
+                }
+                size_t sampled = samplePowerLawInt(min_community_size, max_community_size, community_tau, rng);
+                sampled = std::min(sampled, remaining);
+                if (remaining - sampled > 0 && remaining - sampled < min_community_size) {
+                    sampled = remaining;
+                }
+                community_sizes.push_back(sampled);
+                remaining -= sampled;
+            }
+
+            std::vector<int> node_community(num_ids, -1);
+            std::vector<std::vector<size_t>> communities;
+            communities.reserve(community_sizes.size());
+            size_t cursor = 0;
+            for (size_t cid = 0; cid < community_sizes.size(); ++cid) {
+                communities.push_back(std::vector<size_t>());
+                communities.back().reserve(community_sizes[cid]);
+                for (size_t j = 0; j < community_sizes[cid] && cursor < order.size(); ++j) {
+                    size_t node = order[cursor++];
+                    node_community[node] = static_cast<int>(cid);
+                    communities.back().push_back(node);
+                }
+            }
+
+            std::vector<double> raw_degree(num_ids);
+            double raw_sum = 0.0;
+            for (size_t i = 0; i < num_ids; ++i) {
+                raw_degree[i] = static_cast<double>(samplePowerLawInt(1, static_cast<size_t>(max_degree), degree_tau, rng));
+                raw_sum += raw_degree[i];
+            }
+            double scale = raw_sum > 0.0 ? (static_cast<double>(avg_degree) * num_ids / raw_sum) : 1.0;
+
+            std::vector<int> degree(num_ids, 1);
+            std::vector<int> internal_target(num_ids, 0);
+            std::vector<int> external_target(num_ids, 0);
+            for (size_t i = 0; i < num_ids; ++i) {
+                int cid = node_community[i];
+                int community_cap = cid >= 0 ? static_cast<int>(communities[cid].size()) - 1 : 0;
+                int deg = static_cast<int>(std::round(raw_degree[i] * scale));
+                deg = std::max(1, std::min(max_degree, deg));
+                deg = std::min<int>(deg, static_cast<int>(num_ids) - 1);
+                int internal = static_cast<int>(std::round((1.0 - mixing_mu) * deg));
+                internal = std::max(0, std::min(internal, community_cap));
+                degree[i] = deg;
+                internal_target[i] = internal;
+                external_target[i] = std::max(0, deg - internal);
+            }
+
+            std::vector<std::vector<size_t>> edges(num_ids);
+            std::vector<int> internal_count(num_ids, 0);
+
+            for (size_t cid = 0; cid < communities.size(); ++cid) {
+                const std::vector<size_t>& members = communities[cid];
+                if (members.size() < 2) continue;
+                std::uniform_int_distribution<size_t> pick(0, members.size() - 1);
+                for (size_t idx = 0; idx < members.size(); ++idx) {
+                    size_t u = members[idx];
+                    size_t attempts = 0;
+                    size_t max_attempts = std::max<size_t>(100, members.size() * 10);
+                    while (internal_count[u] < internal_target[u] && attempts++ < max_attempts) {
+                        size_t v = members[pick(rng)];
+                        if (u == v || hasEdge(edges, u, v)) continue;
+                        addUndirectedEdge(edges, u, v);
+                        internal_count[u]++;
+                        internal_count[v]++;
+                    }
+                }
+            }
+
+            for (size_t i = 0; i < num_ids; ++i) {
+                int missing_internal = std::max(0, internal_target[i] - internal_count[i]);
+                external_target[i] += missing_internal;
+            }
+
+            std::vector<int> external_count(num_ids, 0);
+            std::uniform_int_distribution<size_t> pick_node(0, num_ids - 1);
+            for (size_t u = 0; u < num_ids; ++u) {
+                size_t attempts = 0;
+                size_t max_attempts = std::max<size_t>(1000, num_ids * 2);
+                while (external_count[u] < external_target[u] && attempts++ < max_attempts) {
+                    size_t v = pick_node(rng);
+                    if (u == v || node_community[u] == node_community[v] || hasEdge(edges, u, v)) continue;
+                    addUndirectedEdge(edges, u, v);
+                    external_count[u]++;
+                    external_count[v]++;
+                }
+            }
+
+            for (size_t i = 0; i < num_ids; ++i) {
+                std::sort(edges[i].begin(), edges[i].end());
+            }
+            buildFromAdjacency(ids, edges);
         }
     
         void saveRelation(const std::string & location) {
@@ -365,6 +505,55 @@ namespace hnswlib {
             std::cout << "  offset_map: size=" << offset_map.size()
                       << ", buckets=" << offset_map.bucket_count()
                       << ", load_factor=" << offset_map.load_factor() << std::endl;
+        }
+
+    private:
+        template<typename RNG>
+        size_t samplePowerLawInt(size_t min_value, size_t max_value, double tau, RNG& rng) {
+            if (max_value <= min_value) return min_value;
+            std::uniform_real_distribution<double> uniform(0.0, 1.0);
+            double lo = static_cast<double>(min_value);
+            double hi = static_cast<double>(max_value);
+            double u = uniform(rng);
+            if (std::fabs(tau - 1.0) < 1e-9) {
+                return static_cast<size_t>(std::round(lo * std::pow(hi / lo, u)));
+            }
+            double a = 1.0 - tau;
+            double x = std::pow(u * (std::pow(hi, a) - std::pow(lo, a)) + std::pow(lo, a), 1.0 / a);
+            size_t value = static_cast<size_t>(std::round(x));
+            return std::max(min_value, std::min(max_value, value));
+        }
+
+        bool hasEdge(const std::vector<std::vector<size_t>>& edges, size_t u, size_t v) const {
+            const std::vector<size_t>& adj = edges[u];
+            return std::find(adj.begin(), adj.end(), v) != adj.end();
+        }
+
+        void addUndirectedEdge(std::vector<std::vector<size_t>>& edges, size_t u, size_t v) {
+            edges[u].push_back(v);
+            edges[v].push_back(u);
+        }
+
+        void buildFromAdjacency(size_t* ids, const std::vector<std::vector<size_t>>& edges) {
+            size_t num_ids = edges.size();
+            size_t totalEdges = 0;
+            for (size_t i = 0; i < num_ids; ++i) {
+                totalEdges += edges[i].size();
+                for (size_t v : edges[i]) {
+                    if (i < v) edge_pairs.push_back(std::make_pair((int)ids[i], (int)ids[v]));
+                }
+            }
+
+            end_points = new size_t[totalEdges];
+            size_t pos = 0;
+            for (size_t i = 0; i < num_ids; i++) {
+                labeltype id = ids[i];
+                id_start_point_map[id] = pos;
+                offset_map[id] = static_cast<unsigned int>(edges[i].size());
+                for (size_t v : edges[i]) {
+                    end_points[pos++] = ids[v];
+                }
+            }
         }
     };
 }
