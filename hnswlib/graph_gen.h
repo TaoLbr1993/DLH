@@ -205,17 +205,50 @@ namespace hnswlib {
             double scale = raw_sum > 0.0 ? (static_cast<double>(avg_degree) * num_ids / raw_sum) : 1.0;
 
             std::vector<int> degree(num_ids, 1);
+            for (size_t i = 0; i < num_ids; ++i) {
+                int deg = static_cast<int>(std::round(raw_degree[i] * scale));
+                deg = std::max(1, std::min(max_degree, deg));
+                deg = std::min<int>(deg, static_cast<int>(num_ids) - 1);
+                degree[i] = deg;
+            }
+
+            long long target_degree_sum = static_cast<long long>(avg_degree) * static_cast<long long>(num_ids);
+            const long long min_degree_sum = static_cast<long long>(num_ids);
+            const long long max_degree_sum = static_cast<long long>(max_degree) * static_cast<long long>(num_ids);
+            target_degree_sum = std::max(min_degree_sum, std::min(target_degree_sum, max_degree_sum));
+            if ((target_degree_sum & 1LL) != 0) {
+                target_degree_sum += target_degree_sum < max_degree_sum ? 1 : -1;
+            }
+
+            long long degree_sum = 0;
+            for (size_t i = 0; i < num_ids; ++i) degree_sum += degree[i];
+            std::vector<size_t> adjust_order = order;
+            while (degree_sum != target_degree_sum) {
+                std::shuffle(adjust_order.begin(), adjust_order.end(), rng);
+                bool changed = false;
+                for (size_t idx = 0; idx < adjust_order.size() && degree_sum != target_degree_sum; ++idx) {
+                    size_t node = adjust_order[idx];
+                    if (degree_sum < target_degree_sum && degree[node] < max_degree) {
+                        degree[node]++;
+                        degree_sum++;
+                        changed = true;
+                    } else if (degree_sum > target_degree_sum && degree[node] > 1) {
+                        degree[node]--;
+                        degree_sum--;
+                        changed = true;
+                    }
+                }
+                if (!changed) break;
+            }
+
             std::vector<int> internal_target(num_ids, 0);
             std::vector<int> external_target(num_ids, 0);
             for (size_t i = 0; i < num_ids; ++i) {
                 int cid = node_community[i];
                 int community_cap = cid >= 0 ? static_cast<int>(communities[cid].size()) - 1 : 0;
-                int deg = static_cast<int>(std::round(raw_degree[i] * scale));
-                deg = std::max(1, std::min(max_degree, deg));
-                deg = std::min<int>(deg, static_cast<int>(num_ids) - 1);
+                int deg = degree[i];
                 int internal = static_cast<int>(std::round((1.0 - mixing_mu) * deg));
                 internal = std::max(0, std::min(internal, community_cap));
-                degree[i] = deg;
                 internal_target[i] = internal;
                 external_target[i] = std::max(0, deg - internal);
             }
@@ -233,7 +266,10 @@ namespace hnswlib {
                     size_t max_attempts = std::max<size_t>(100, members.size() * 10);
                     while (internal_count[u] < internal_target[u] && attempts++ < max_attempts) {
                         size_t v = members[pick(rng)];
-                        if (u == v || hasEdge(edges, u, v)) continue;
+                        if (u == v || hasEdge(edges, u, v) ||
+                            internal_count[v] >= internal_target[v] ||
+                            edges[u].size() >= static_cast<size_t>(degree[u]) ||
+                            edges[v].size() >= static_cast<size_t>(degree[v])) continue;
                         addUndirectedEdge(edges, u, v);
                         internal_count[u]++;
                         internal_count[v]++;
@@ -242,8 +278,7 @@ namespace hnswlib {
             }
 
             for (size_t i = 0; i < num_ids; ++i) {
-                int missing_internal = std::max(0, internal_target[i] - internal_count[i]);
-                external_target[i] += missing_internal;
+                external_target[i] = std::max(0, degree[i] - internal_count[i]);
             }
 
             std::vector<int> external_count(num_ids, 0);
@@ -253,10 +288,52 @@ namespace hnswlib {
                 size_t max_attempts = std::max<size_t>(1000, num_ids * 2);
                 while (external_count[u] < external_target[u] && attempts++ < max_attempts) {
                     size_t v = pick_node(rng);
-                    if (u == v || node_community[u] == node_community[v] || hasEdge(edges, u, v)) continue;
+                    if (u == v || node_community[u] == node_community[v] || hasEdge(edges, u, v) ||
+                        external_count[v] >= external_target[v] ||
+                        edges[u].size() >= static_cast<size_t>(degree[u]) ||
+                        edges[v].size() >= static_cast<size_t>(degree[v])) continue;
                     addUndirectedEdge(edges, u, v);
                     external_count[u]++;
                     external_count[v]++;
+                }
+            }
+
+            long long remaining_stubs = 0;
+            std::vector<size_t> active;
+            active.reserve(num_ids);
+            for (size_t i = 0; i < num_ids; ++i) {
+                int deficit = degree[i] - static_cast<int>(edges[i].size());
+                if (deficit > 0) {
+                    remaining_stubs += deficit;
+                    active.push_back(i);
+                }
+            }
+
+            size_t fallback_attempts = 0;
+            const size_t max_fallback_attempts = std::max<size_t>(10000, num_ids * 100);
+            while (active.size() >= 2 && remaining_stubs >= 2 && fallback_attempts++ < max_fallback_attempts) {
+                std::uniform_int_distribution<size_t> pick_active(0, active.size() - 1);
+                size_t u_pos = pick_active(rng);
+                size_t v_pos = pick_active(rng);
+                if (u_pos == v_pos) continue;
+                size_t u = active[u_pos];
+                size_t v = active[v_pos];
+                if (hasEdge(edges, u, v)) continue;
+
+                addUndirectedEdge(edges, u, v);
+                remaining_stubs -= 2;
+
+                if (edges[u].size() >= static_cast<size_t>(degree[u])) {
+                    active[u_pos] = active.back();
+                    active.pop_back();
+                    if (v_pos == active.size()) v_pos = u_pos;
+                }
+                if (!active.empty() && v_pos < active.size()) {
+                    size_t current_v = active[v_pos];
+                    if (edges[current_v].size() >= static_cast<size_t>(degree[current_v])) {
+                        active[v_pos] = active.back();
+                        active.pop_back();
+                    }
                 }
             }
 
