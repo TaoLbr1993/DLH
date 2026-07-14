@@ -6,9 +6,9 @@ from datetime import datetime
 from pathlib import Path
 
 # 硬编码：可执行文件路径
-EXE = "/home/jiangyuntao/hnswlib-flex/build/gen_groundtruth"
+EXE = os.path.expanduser("~/DLH/build/gen_groundtruth")
 # 硬编码：公共输入（可按需修改）
-FVECs = "/home/jiangyuntao/YFCC10M/base10M.fvecs"
+FVECs = os.path.expanduser("~/YFCC10M/base10M.fvecs")
 
 # 实验列表（每项一个独立 groundtruth 任务，注意保证 output_dir 唯一）
 EXP_JOBS = [
@@ -16,7 +16,7 @@ EXP_JOBS = [
         "name": "YFCC10M-0.00025-1M-4hop-20group",
         "fvecs": FVECs,
         "max_elements": 1000000,
-        "output_dir": "/home/jiangyuntao/test_data/YFCC10M-0.00025-1M-4hop-20group",
+        "output_dir": "~/test_data/YFCC10M-0.00025-1M-4hop-20group",
         "prob": 0.00025,
         "topk": 10,
         "k_query": 10000,
@@ -30,7 +30,7 @@ EXP_JOBS = [
         "name": "YFCC10M-0.00027-1M-4hop-20group",
         "fvecs": FVECs,
         "max_elements": 1000000,
-        "output_dir": "/home/jiangyuntao/test_data/YFCC10M-0.00027-1M-4hop-20group",
+        "output_dir": "~/test_data/YFCC10M-0.00027-1M-4hop-20group",
         "prob": 0.00027,
         "topk": 10,
         "k_query": 10000,
@@ -44,7 +44,7 @@ EXP_JOBS = [
         "name": "YFCC10M-0.0003-1M-4hop-20group",
         "fvecs": FVECs,
         "max_elements": 1000000,
-        "output_dir": "/home/jiangyuntao/test_data/YFCC10M-0.0003-1M-4hop-20group",
+        "output_dir": "~/test_data/YFCC10M-0.0003-1M-4hop-20group",
         "prob": 0.0003,
         "topk": 10,
         "k_query": 10000,
@@ -61,7 +61,7 @@ def ensure_dir(path: str):
 
 def run_job(job: dict) -> tuple[str, int]:
     name = job["name"]
-    out_dir = job["output_dir"]
+    out_dir = os.path.expanduser(job["output_dir"])
 
     ensure_dir(out_dir)
 
@@ -72,7 +72,7 @@ def run_job(job: dict) -> tuple[str, int]:
 
     args = [
         EXE,
-        "--fvecs", job["fvecs"],
+        "--fvecs", os.path.expanduser(job["fvecs"]),
         "--max-elements", str(job["max_elements"]),
         "--output-dir", out_dir,
         "--prob", str(job["prob"]),

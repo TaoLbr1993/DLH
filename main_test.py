@@ -13,8 +13,8 @@ def ensure_dir(path: str):
 MAIN_SIFT = [
     {
         "dataset_name": "Sift1M-0.00025-1M-4hop-20group",
-        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.00025-1M-4hop-20group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.00025-1M-4hop-20group",
+        "data_dir": "~/test_data/Sift1M-0.00025-1M-4hop-20group",
+        "log_dir": "~/DLH/logs/Sift1M-0.00025-1M-4hop-20group",
         "acorn_gamma": "2",
         "ef_lists": {
             "DAL": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,250,260,280,300",
@@ -27,8 +27,8 @@ MAIN_SIFT = [
     },
     {
         "dataset_name": "Sift1M-0.00027-1M-4hop-20group",
-        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.00027-1M-4hop-20group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.00027-1M-4hop-20group",
+        "data_dir": "~/test_data/Sift1M-0.00027-1M-4hop-20group",
+        "log_dir": "~/DLH/logs/Sift1M-0.00027-1M-4hop-20group",
         "acorn_gamma": "2",
         "ef_lists": {
             "DAL": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,250,260,280,300",
@@ -41,8 +41,8 @@ MAIN_SIFT = [
     },
     {
         "dataset_name": "Sift1M-0.0003-1M-4hop-20group",
-        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.0003-1M-4hop-20group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.0003-1M-4hop-20group",
+        "data_dir": "~/test_data/Sift1M-0.0003-1M-4hop-20group",
+        "log_dir": "~/DLH/logs/Sift1M-0.0003-1M-4hop-20group",
         "acorn_gamma": "1",
         "ef_lists": {
             "DAL": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,250,260,280,300",
@@ -58,8 +58,8 @@ MAIN_SIFT = [
 MAIN_GIST = [
     {
         "dataset_name": "Gist1M-0.00025-1M-4hop-20group",
-        "data_dir": "/home/jiangyuntao/test_data/Gist1M-0.00025-1M-4hop-20group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Gist1M-0.00025-1M-4hop-20group",
+        "data_dir": "~/test_data/Gist1M-0.00025-1M-4hop-20group",
+        "log_dir": "~/DLH/logs/Gist1M-0.00025-1M-4hop-20group",
         "acorn_gamma": "2",
         "ef_lists": {
             "DLH-M": "30,35,40,45,50,60,80,100,120,140,160,180,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
@@ -71,8 +71,8 @@ MAIN_GIST = [
     },
     {
         "dataset_name": "Gist1M-0.00027-1M-4hop-20group",
-        "data_dir": "/home/jiangyuntao/test_data/Gist1M-0.00027-1M-4hop-20group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Gist1M-0.00027-1M-4hop-20group",
+        "data_dir": "~/test_data/Gist1M-0.00027-1M-4hop-20group",
+        "log_dir": "~/DLH/logs/Gist1M-0.00027-1M-4hop-20group",
         "acorn_gamma": "2",
         "ef_lists": {
             "DLH-M": "30,35,40,45,50,60,80,100,120,140,160,180,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
@@ -84,8 +84,8 @@ MAIN_GIST = [
     },
     {
         "dataset_name": "Gist1M-0.0003-1M-4hop-20group",
-        "data_dir": "/home/jiangyuntao/test_data/Gist1M-0.0003-1M-4hop-20group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Gist1M-0.0003-1M-4hop-20group",
+        "data_dir": "~/test_data/Gist1M-0.0003-1M-4hop-20group",
+        "log_dir": "~/DLH/logs/Gist1M-0.0003-1M-4hop-20group",
         "acorn_gamma": "2",
         "ef_lists": {
             "DLH-M": "30,35,40,45,50,60,80,100,120,140,160,180,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
@@ -100,8 +100,8 @@ MAIN_GIST = [
 MAIN_DEEP = [
     {
         "dataset_name": "Deep10M-0.00025-1M-4hop-20group",
-        "data_dir": "/home/jiangyuntao/test_data/Deep10M-0.00025-1M-4hop-20group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Deep10M-0.00025-1M-4hop-20group",
+        "data_dir": "~/test_data/Deep10M-0.00025-1M-4hop-20group",
+        "log_dir": "~/DLH/logs/Deep10M-0.00025-1M-4hop-20group",
         "acorn_gamma": "2",
         "ef_lists": {
             "DLH-M": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
@@ -114,8 +114,8 @@ MAIN_DEEP = [
     },
     {
         "dataset_name": "Deep10M-0.00027-1M-4hop-20group",
-        "data_dir": "/home/jiangyuntao/test_data/Deep10M-0.00027-1M-4hop-20group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Deep10M-0.00027-1M-4hop-20group",
+        "data_dir": "~/test_data/Deep10M-0.00027-1M-4hop-20group",
+        "log_dir": "~/DLH/logs/Deep10M-0.00027-1M-4hop-20group",
         "acorn_gamma": "2",
         "ef_lists": {
             "DLH-M": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
@@ -128,8 +128,8 @@ MAIN_DEEP = [
     },
     {
         "dataset_name": "Deep10M-0.0003-1M-4hop-20group",
-        "data_dir": "/home/jiangyuntao/test_data/Deep10M-0.0003-1M-4hop-20group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Deep10M-0.0003-1M-4hop-20group",
+        "data_dir": "~/test_data/Deep10M-0.0003-1M-4hop-20group",
+        "log_dir": "~/DLH/logs/Deep10M-0.0003-1M-4hop-20group",
         "acorn_gamma": "2",
         "ef_lists": {
             "DLH-M": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
@@ -145,8 +145,8 @@ MAIN_DEEP = [
 MAIN_GLOVE = [
     {
         "dataset_name": "GloVe-0.00025-1M-4hop-20group",
-        "data_dir": "/home/jiangyuntao/test_data/GloVe-0.00025-1M-4hop-20group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/GloVe-0.00025-1M-4hop-20group",
+        "data_dir": "~/test_data/GloVe-0.00025-1M-4hop-20group",
+        "log_dir": "~/DLH/logs/GloVe-0.00025-1M-4hop-20group",
         "acorn_gamma": "2",
         "ef_lists": {
             "DLH-M": "60,80,100,120,140,160,180,200,240,280,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
@@ -158,8 +158,8 @@ MAIN_GLOVE = [
     },
     {
         "dataset_name": "GloVe-0.00027-1M-4hop-20group",
-        "data_dir": "/home/jiangyuntao/test_data/GloVe-0.00027-1M-4hop-20group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/GloVe-0.00027-1M-4hop-20group",
+        "data_dir": "~/test_data/GloVe-0.00027-1M-4hop-20group",
+        "log_dir": "~/DLH/logs/GloVe-0.00027-1M-4hop-20group",
         "acorn_gamma": "2",
         "ef_lists": {
             "DLH-M": "60,80,100,120,140,160,180,200,240,280,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
@@ -171,8 +171,8 @@ MAIN_GLOVE = [
     },
     {
         "dataset_name": "GloVe-0.0003-1M-4hop-20group",
-        "data_dir": "/home/jiangyuntao/test_data/GloVe-0.0003-1M-4hop-20group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/GloVe-0.0003-1M-4hop-20group",
+        "data_dir": "~/test_data/GloVe-0.0003-1M-4hop-20group",
+        "log_dir": "~/DLH/logs/GloVe-0.0003-1M-4hop-20group",
         "acorn_gamma": "2",
         "ef_lists": {
             "DLH-M": "60,80,100,120,140,160,180,200,240,280,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000",
@@ -187,8 +187,8 @@ MAIN_GLOVE = [
 MAIN_YFCC = [
     {
         "dataset_name": "YFCC10M-0.00025-1M-4hop-20group",
-        "data_dir": "/home/jiangyuntao/test_data/YFCC10M-0.00025-1M-4hop-20group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/YFCC10M-0.00025-1M-4hop-20group",
+        "data_dir": "~/test_data/YFCC10M-0.00025-1M-4hop-20group",
+        "log_dir": "~/DLH/logs/YFCC10M-0.00025-1M-4hop-20group",
         "acorn_gamma": "2",
         "ef_lists": {
             "DLH-M": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
@@ -200,8 +200,8 @@ MAIN_YFCC = [
     },
     {
         "dataset_name": "YFCC10M-0.00027-1M-4hop-20group",
-        "data_dir": "/home/jiangyuntao/test_data/YFCC10M-0.00027-1M-4hop-20group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/YFCC10M-0.00027-1M-4hop-20group",
+        "data_dir": "~/test_data/YFCC10M-0.00027-1M-4hop-20group",
+        "log_dir": "~/DLH/logs/YFCC10M-0.00027-1M-4hop-20group",
         "acorn_gamma": "2",
         "ef_lists": {
             "DLH-M": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
@@ -213,8 +213,8 @@ MAIN_YFCC = [
     },
     {
         "dataset_name": "YFCC10M-0.0003-1M-4hop-20group",
-        "data_dir": "/home/jiangyuntao/test_data/YFCC10M-0.0003-1M-4hop-20group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/YFCC10M-0.0003-1M-4hop-20group",
+        "data_dir": "~/test_data/YFCC10M-0.0003-1M-4hop-20group",
+        "log_dir": "~/DLH/logs/YFCC10M-0.0003-1M-4hop-20group",
         "acorn_gamma": "2",
         "ef_lists": {
             "DLH-M": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
@@ -231,8 +231,8 @@ MAIN_YFCC = [
 SCALA_DEEP = [
     # {
     #     "dataset_name": "Deep10M-0.00027-2M-4hop-40group",
-    #     "data_dir": "/home/jiangyuntao/test_data/Deep10M-0.00027-2M-4hop-40group",
-    #     "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Deep10M-0.00027-2M-4hop-40group",
+    #     "data_dir": "~/test_data/Deep10M-0.00027-2M-4hop-40group",
+    #     "log_dir": "~/DLH/logs/Deep10M-0.00027-2M-4hop-40group",
     #     "acorn_gamma": "2",
     #     "ef_lists": {
     #         "DLH-M": "100,250",
@@ -245,8 +245,8 @@ SCALA_DEEP = [
     # },
     # {
     #     "dataset_name": "Deep10M-0.00027-4M-4hop-80group",
-    #     "data_dir": "/home/jiangyuntao/test_data/Deep10M-0.00027-4M-4hop-80group",
-    #     "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Deep10M-0.00027-4M-4hop-80group",
+    #     "data_dir": "~/test_data/Deep10M-0.00027-4M-4hop-80group",
+    #     "log_dir": "~/DLH/logs/Deep10M-0.00027-4M-4hop-80group",
     #     "acorn_gamma": "2",
     #     "ef_lists": {
     #         "DLH-M": "100,250",
@@ -259,8 +259,8 @@ SCALA_DEEP = [
     # },
     {
         "dataset_name": "Deep10M-0.00027-6M-4hop-120group",
-        "data_dir": "/home/jiangyuntao/test_data/Deep10M-0.00027-6M-4hop-120group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Deep10M-0.00027-6M-4hop-120group",
+        "data_dir": "~/test_data/Deep10M-0.00027-6M-4hop-120group",
+        "log_dir": "~/DLH/logs/Deep10M-0.00027-6M-4hop-120group",
         "acorn_gamma": "2",
         "ef_lists": {
             "DLH-M": "100,250",
@@ -273,8 +273,8 @@ SCALA_DEEP = [
     },
     # {
     #     "dataset_name": "Deep10M-0.00027-8M-4hop-160group",
-    #     "data_dir": "/home/jiangyuntao/test_data/Deep10M-0.00027-8M-4hop-160group",
-    #     "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Deep10M-0.00027-8M-4hop-160group",
+    #     "data_dir": "~/test_data/Deep10M-0.00027-8M-4hop-160group",
+    #     "log_dir": "~/DLH/logs/Deep10M-0.00027-8M-4hop-160group",
     #     "acorn_gamma": "2",
     #     "ef_lists": {
     #         "DLH-M": "100,250",
@@ -287,8 +287,8 @@ SCALA_DEEP = [
     # },
     # {
     #     "dataset_name": "Deep10M-0.00027-10M-4hop-200group",
-    #     "data_dir": "/home/jiangyuntao/test_data/Deep10M-0.00027-10M-4hop-200group",
-    #     "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Deep10M-0.00027-10M-4hop-200group",
+    #     "data_dir": "~/test_data/Deep10M-0.00027-10M-4hop-200group",
+    #     "log_dir": "~/DLH/logs/Deep10M-0.00027-10M-4hop-200group",
     #     "acorn_gamma": "2",
     #     "ef_lists": {
     #         "DLH-M": "100,250",
@@ -304,8 +304,8 @@ SCALA_DEEP = [
 PARAM_FPP_SIFT = [
     {
         "dataset_name": "Sift1M-0.00027-1M-4hop-20group-fpp0.005",
-        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.00027-1M-4hop-20group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.00027-1M-4hop-20group-fpp0.005",
+        "data_dir": "~/test_data/Sift1M-0.00027-1M-4hop-20group",
+        "log_dir": "~/DLH/logs/Sift1M-0.00027-1M-4hop-20group-fpp0.005",
         "acorn_gamma": "2",
         "ef_lists": {
             "DAL": "100,250",
@@ -323,8 +323,8 @@ PARAM_FPP_SIFT = [
 PARAM_KHOP_SIFT = [
     {
         "dataset_name": "Sift1M-0.00027-1M-3hop-20group",
-        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.00027-1M-3hop-20group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.00027-1M-3hop-20group",
+        "data_dir": "~/test_data/Sift1M-0.00027-1M-3hop-20group",
+        "log_dir": "~/DLH/logs/Sift1M-0.00027-1M-3hop-20group",
         "acorn_gamma": "2",
         "ef_lists": {
             "DAL": "100,250",
@@ -338,8 +338,8 @@ PARAM_KHOP_SIFT = [
     },
     {
         "dataset_name": "Sift1M-0.00027-1M-4hop-20group",
-        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.00027-1M-4hop-20group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.00027-1M-4hop-20group",
+        "data_dir": "~/test_data/Sift1M-0.00027-1M-4hop-20group",
+        "log_dir": "~/DLH/logs/Sift1M-0.00027-1M-4hop-20group",
         "acorn_gamma": "2",
         "ef_lists": {
             "DAL": "100,250",
@@ -353,8 +353,8 @@ PARAM_KHOP_SIFT = [
     },
     {
         "dataset_name": "Sift1M-0.00027-1M-5hop-20group",
-        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.00027-1M-5hop-20group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.00027-1M-5hop-20group",
+        "data_dir": "~/test_data/Sift1M-0.00027-1M-5hop-20group",
+        "log_dir": "~/DLH/logs/Sift1M-0.00027-1M-5hop-20group",
         "acorn_gamma": "2",
         "ef_lists": {
             "DAL": "100,250",
@@ -368,8 +368,8 @@ PARAM_KHOP_SIFT = [
     },
     {
         "dataset_name": "Sift1M-0.00027-1M-6hop-20group",
-        "data_dir": "/home/jiangyuntao/test_data/Sift1M-0.00027-1M-6hop-20group",
-        "log_dir": "/home/jiangyuntao/hnswlib-flex/logs/Sift1M-0.00027-1M-6hop-20group",
+        "data_dir": "~/test_data/Sift1M-0.00027-1M-6hop-20group",
+        "log_dir": "~/DLH/logs/Sift1M-0.00027-1M-6hop-20group",
         "acorn_gamma": "2",
         "ef_lists": {
             "DAL": "100,250",
@@ -399,9 +399,11 @@ baselines_config = [
 # 3. 动态生成 EXP_JOBS
 def generate_exp_jobs(datasets_to_run, baselines_to_run):
     jobs = []
-    build_dir = "/home/jiangyuntao/hnswlib-flex/build"
+    build_dir = os.path.expanduser("~/DLH/build")
     for dataset_cfg in datasets_to_run:
         ef_map = dataset_cfg.get("ef_lists", {})
+        data_dir = os.path.expanduser(dataset_cfg["data_dir"])
+        log_dir = os.path.expanduser(dataset_cfg["log_dir"])
         for baseline_cfg in baselines_to_run:
             bname = baseline_cfg["name"]
             if bname not in ef_map:
@@ -409,8 +411,8 @@ def generate_exp_jobs(datasets_to_run, baselines_to_run):
             job_name = f"{bname}_{dataset_cfg['dataset_name']}"
 
             argv = [
-                "--data-dir", dataset_cfg["data_dir"],
-                "--out", dataset_cfg["log_dir"],
+                "--data-dir", data_dir,
+                "--out", log_dir,
                 "--ef-list", ef_map[bname],
             ]
 
@@ -424,7 +426,7 @@ def generate_exp_jobs(datasets_to_run, baselines_to_run):
             jobs.append({
                 "name": job_name,
                 "exe": os.path.join(build_dir, baseline_cfg["exe_name"]),
-                "out_dir": dataset_cfg["log_dir"],
+                "out_dir": log_dir,
                 "argv": argv,
             })
     return jobs
