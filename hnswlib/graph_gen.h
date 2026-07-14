@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <queue>
 
 namespace hnswlib {
 
@@ -298,43 +299,36 @@ namespace hnswlib {
                 }
             }
 
-            long long remaining_stubs = 0;
-            std::vector<size_t> active;
-            active.reserve(num_ids);
+            typedef std::pair<int, size_t> DeficitNode;
+            std::priority_queue<DeficitNode> deficit_queue;
             for (size_t i = 0; i < num_ids; ++i) {
                 int deficit = degree[i] - static_cast<int>(edges[i].size());
-                if (deficit > 0) {
-                    remaining_stubs += deficit;
-                    active.push_back(i);
-                }
+                if (deficit > 0) deficit_queue.push(std::make_pair(deficit, i));
             }
 
-            size_t fallback_attempts = 0;
-            const size_t max_fallback_attempts = std::max<size_t>(10000, num_ids * 100);
-            while (active.size() >= 2 && remaining_stubs >= 2 && fallback_attempts++ < max_fallback_attempts) {
-                std::uniform_int_distribution<size_t> pick_active(0, active.size() - 1);
-                size_t u_pos = pick_active(rng);
-                size_t v_pos = pick_active(rng);
-                if (u_pos == v_pos) continue;
-                size_t u = active[u_pos];
-                size_t v = active[v_pos];
-                if (hasEdge(edges, u, v)) continue;
+            while (deficit_queue.size() >= 2) {
+                DeficitNode u_entry = deficit_queue.top();
+                deficit_queue.pop();
+                std::vector<DeficitNode> skipped;
+                DeficitNode v_entry;
+                bool found = false;
 
-                addUndirectedEdge(edges, u, v);
-                remaining_stubs -= 2;
-
-                if (edges[u].size() >= static_cast<size_t>(degree[u])) {
-                    active[u_pos] = active.back();
-                    active.pop_back();
-                    if (v_pos == active.size()) v_pos = u_pos;
-                }
-                if (!active.empty() && v_pos < active.size()) {
-                    size_t current_v = active[v_pos];
-                    if (edges[current_v].size() >= static_cast<size_t>(degree[current_v])) {
-                        active[v_pos] = active.back();
-                        active.pop_back();
+                while (!deficit_queue.empty()) {
+                    DeficitNode candidate = deficit_queue.top();
+                    deficit_queue.pop();
+                    if (!hasEdge(edges, u_entry.second, candidate.second)) {
+                        v_entry = candidate;
+                        found = true;
+                        break;
                     }
+                    skipped.push_back(candidate);
                 }
+                for (size_t i = 0; i < skipped.size(); ++i) deficit_queue.push(skipped[i]);
+                if (!found) continue;
+
+                addUndirectedEdge(edges, u_entry.second, v_entry.second);
+                if (--u_entry.first > 0) deficit_queue.push(u_entry);
+                if (--v_entry.first > 0) deficit_queue.push(v_entry);
             }
 
             for (size_t i = 0; i < num_ids; ++i) {
