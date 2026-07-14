@@ -331,6 +331,30 @@ namespace hnswlib {
                 if (--v_entry.first > 0) deficit_queue.push(v_entry);
             }
 
+            const size_t target_edge_count = static_cast<size_t>(target_degree_sum / 2);
+            size_t current_edge_count = 0;
+            for (size_t i = 0; i < num_ids; ++i) current_edge_count += edges[i].size();
+            current_edge_count /= 2;
+
+            size_t redistribution_attempts = 0;
+            const size_t missing_edges = target_edge_count > current_edge_count
+                ? target_edge_count - current_edge_count : 0;
+            const size_t max_redistribution_attempts = std::max<size_t>(10000, missing_edges * 1000);
+            while (current_edge_count < target_edge_count &&
+                   redistribution_attempts++ < max_redistribution_attempts) {
+                size_t u = pick_node(rng);
+                size_t v = pick_node(rng);
+                if (u == v || hasEdge(edges, u, v) ||
+                    edges[u].size() >= static_cast<size_t>(max_degree) ||
+                    edges[v].size() >= static_cast<size_t>(max_degree)) continue;
+                addUndirectedEdge(edges, u, v);
+                current_edge_count++;
+            }
+            if (current_edge_count < target_edge_count) {
+                std::cerr << "LFR warning: generated " << current_edge_count
+                          << " edges, target was " << target_edge_count << std::endl;
+            }
+
             for (size_t i = 0; i < num_ids; ++i) {
                 std::sort(edges[i].begin(), edges[i].end());
             }
@@ -546,11 +570,19 @@ namespace hnswlib {
             for (const auto& kv : offset_map) {
                 totalAdjEntries += kv.second;
             }
+            unsigned int maxDegree = 0;
+            for (const auto& kv : offset_map) {
+                maxDegree = std::max(maxDegree, kv.second);
+            }
             size_t undirectedEdges = edge_pairs.size(); // 生成时存了一次无向边(i,j)
 
             std::cout << "  number of nodes with edges: " << nodes_with_edges << std::endl;
             std::cout << "  undirected edges (edge_pairs): " << undirectedEdges << std::endl;
             std::cout << "  adjacency entries (CSR): " << totalAdjEntries << std::endl;
+            std::cout << "  average degree: "
+                      << (nodes_with_edges > 0 ? static_cast<double>(totalAdjEntries) / nodes_with_edges : 0.0)
+                      << std::endl;
+            std::cout << "  maximum degree: " << maxDegree << std::endl;
 
             // 内存占用
             auto toMB = [](size_t bytes) { return bytes / (1024.0 * 1024.0); };
