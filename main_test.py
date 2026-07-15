@@ -229,6 +229,26 @@ MAIN_YFCC = [
     },
 ]
 
+LFR_YFCC_EF_LISTS = {
+    "DAL": "100",
+    "DLH-M": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+    "DLH": "10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,140,160,180,200,220,240,260,280,300",
+    "NAVIX": "4,6,8,10,12,14,16,18,20,30,40,50,60,80,100,120,140,160,180,200",
+    "HNSW": "2,10,12,14,16,18,20,25,30,35,40,45,50,60,80,100,120,160,200",
+    "ACORN": "10,20,25,30,35,40,45,50,55,60,70,80,100,120,140,160,200,240,280,500,800,1000,1200,1300,1400,1500,1600",
+}
+
+LFR_YFCC = [
+    {
+        "dataset_name": f"YFCC10M-LFR-k15-kmax30-mu{mu}-1M-4hop-20group",
+        "data_dir": f"~/test_data/YFCC10M-LFR-k15-kmax30-mu{mu}-1M-4hop-20group",
+        "log_dir": f"~/DLH/logs/YFCC10M-LFR-k15-kmax30-mu{mu}-1M-4hop-20group",
+        "acorn_gamma": "2",
+        "ef_lists": dict(LFR_YFCC_EF_LISTS),
+    }
+    for mu in ("0.3", "0.4", "0.5")
+]
+
 
 SCALA_DEEP = [
     # {
@@ -386,7 +406,7 @@ PARAM_KHOP_SIFT = [
 ]
 
 # 1. 数据集配置（每个 dataset 定义各 baseline 对应的 ef_list）
-datasets = MAIN_SIFT
+datasets = LFR_YFCC
 
 # 2. 基线算法配置（去掉 ef_list_idx，直接用 name 作为键）
 baselines_config = [
