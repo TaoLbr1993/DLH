@@ -55,7 +55,70 @@ EXP_JOBS = [
         "k_hop_max": 4,
         "map_group_size": 20,
         "metric": "l2",
-    }
+    },
+    {
+        "name": "YFCC10M-LFR-k15-kmax30-mu0.3-1M-4hop-20group",
+        "fvecs": FVECs,
+        "max_elements": 1000000,
+        "output_dir": "~/test_data/YFCC10M-LFR-k15-kmax30-mu0.3-1M-4hop-20group",
+        "graph_model": "lfr",
+        "topk": 10,
+        "k_query": 10000,
+        "seed": 47,
+        "k_hop_min": 4,
+        "k_hop_max": 4,
+        "map_group_size": 20,
+        "metric": "l2",
+        "lfr_avg_degree": 15,
+        "lfr_max_degree": 30,
+        "lfr_degree_tau": 2.5,
+        "lfr_community_tau": 1.5,
+        "lfr_mu": 0.3,
+        "lfr_min_community": 20,
+        "lfr_max_community": 1000,
+    },
+    {
+        "name": "YFCC10M-LFR-k15-kmax30-mu0.4-1M-4hop-20group",
+        "fvecs": FVECs,
+        "max_elements": 1000000,
+        "output_dir": "~/test_data/YFCC10M-LFR-k15-kmax30-mu0.4-1M-4hop-20group",
+        "graph_model": "lfr",
+        "topk": 10,
+        "k_query": 10000,
+        "seed": 47,
+        "k_hop_min": 4,
+        "k_hop_max": 4,
+        "map_group_size": 20,
+        "metric": "l2",
+        "lfr_avg_degree": 15,
+        "lfr_max_degree": 30,
+        "lfr_degree_tau": 2.5,
+        "lfr_community_tau": 1.5,
+        "lfr_mu": 0.4,
+        "lfr_min_community": 20,
+        "lfr_max_community": 1000,
+    },
+    {
+        "name": "YFCC10M-LFR-k15-kmax30-mu0.5-1M-4hop-20group",
+        "fvecs": FVECs,
+        "max_elements": 1000000,
+        "output_dir": "~/test_data/YFCC10M-LFR-k15-kmax30-mu0.5-1M-4hop-20group",
+        "graph_model": "lfr",
+        "topk": 10,
+        "k_query": 10000,
+        "seed": 47,
+        "k_hop_min": 4,
+        "k_hop_max": 4,
+        "map_group_size": 20,
+        "metric": "l2",
+        "lfr_avg_degree": 15,
+        "lfr_max_degree": 30,
+        "lfr_degree_tau": 2.5,
+        "lfr_community_tau": 1.5,
+        "lfr_mu": 0.5,
+        "lfr_min_community": 20,
+        "lfr_max_community": 1000,
+    },
 ]
 
 def ensure_dir(path: str):
@@ -72,12 +135,13 @@ def run_job(job: dict) -> tuple[str, int]:
     stdout_path = os.path.join(out_dir, f"stdout-{ts}.log")
     stderr_path = os.path.join(out_dir, f"stderr-{ts}.log")
 
+    graph_model = job.get("graph_model", "er")
     args = [
         EXE,
         "--fvecs", os.path.expanduser(job["fvecs"]),
         "--max-elements", str(job["max_elements"]),
         "--output-dir", out_dir,
-        "--prob", str(job["prob"]),
+        "--graph-model", graph_model,
         "--topk", str(job["topk"]),
         "--k-query", str(job["k_query"]),
         "--seed", str(job["seed"]),
@@ -86,6 +150,18 @@ def run_job(job: dict) -> tuple[str, int]:
         "--map-group-size", str(job["map_group_size"]),
         "--metric", job["metric"],
     ]
+    if graph_model == "er":
+        args.extend(["--prob", str(job["prob"])])
+    else:
+        args.extend([
+            "--lfr-avg-degree", str(job["lfr_avg_degree"]),
+            "--lfr-max-degree", str(job["lfr_max_degree"]),
+            "--lfr-degree-tau", str(job["lfr_degree_tau"]),
+            "--lfr-community-tau", str(job["lfr_community_tau"]),
+            "--lfr-mu", str(job["lfr_mu"]),
+            "--lfr-min-community", str(job["lfr_min_community"]),
+            "--lfr-max-community", str(job["lfr_max_community"]),
+        ])
 
     env = os.environ.copy()
     # 不限制内部库线程（按库默认）
@@ -107,7 +183,7 @@ def main():
         sys.exit(1)
 
     # 并发度：资源充足 -> 全部并行
-    max_workers = len(EXP_JOBS)
+    max_workers = 1
     print(f"并发执行 {len(EXP_JOBS)} 个任务，max_workers={max_workers}")
 
     results = []
